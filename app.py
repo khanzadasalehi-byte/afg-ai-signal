@@ -2,17 +2,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================================
-# AFG AI GOLD PRO ELITE V8
-# Strict multi-timeframe technical scanner + risk tools
+# AFG AI GOLD PRO ELITE V10
+# 40-minute market refresh + time-limited manual signals
 # Provider: Twelve Data | Signals are decision support only
 # ==========================================================
 
 st.set_page_config(
-    page_title="AFG AI GOLD PRO ELITE V8",
+    page_title="AFG AI GOLD PRO ELITE V10",
     page_icon="🇦🇫",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -46,12 +47,12 @@ hr { border-color:rgba(214,173,85,.22) !important; }
 </style>
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
-  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V8</span></div>
-  <div class="hero-sub">STRICT MULTI-TIMEFRAME ANALYSIS · RISK CONTROL · SIGNAL AUDIT</div>
+  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V10</span></div>
+  <div class="hero-sub">40-MINUTE MARKET SCAN · TIME-LIMITED SIGNALS · MANUAL TRADING</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("Separate Gold and Bitcoin workspaces · Closed candles only · Limit-entry planning · No automatic trading")
+st.caption("V10 · Separate Gold and Bitcoin · Automatic dashboard refresh every 40 minutes · Signal validity: 40 minutes · Manual trading only")
 st.warning("A technical score is NOT a win probability. No system can guarantee 99% accuracy or profit. Verify every setup and test on a demo account.")
 
 # ------------------------------ CONFIG ------------------------------
@@ -67,11 +68,16 @@ DELTAS = {
 }
 LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
+SCAN_INTERVAL_MINUTES = 40
+SIGNAL_VALIDITY_MINUTES = 40
 MAX_DAILY_SIGNALS = 3
+
+# Refresh the dashboard while it remains open in the browser. This is not a push notification.
+st_autorefresh(interval=SCAN_INTERVAL_MINUTES * 60 * 1000, key="afg_v10_40min_refresh")
 
 with st.sidebar:
     st.markdown("### 🇦🇫 AFG GOLD PRO")
-    st.caption("V8 · STRICT QUALITY MODE")
+    st.caption("V10 · 40-MINUTE SCAN MODE")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
     st.divider()
     st.markdown("**Risk settings**")
@@ -80,7 +86,7 @@ with st.sidebar:
     min_score = st.slider("Minimum technical score", 70, 100, 85)
     st.caption("Higher filters mean fewer setups, not guaranteed higher win rate.")
     st.divider()
-    st.caption("Data: Twelve Data · Max 3 new setups per Kabul day")
+    st.caption("Data: Twelve Data · Scan every 40 minutes · Max 3 new setups per Kabul day")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -337,12 +343,13 @@ for asset, frames in market.items():
     last15 = frames["15M"].iloc[-1]
     last_close_time = last15["datetime"].to_pydatetime() + timedelta(minutes=15)
     age = datetime.now(timezone.utc) - last_close_time
-    stale = age > timedelta(minutes=45)
-    expiry = last_close_time + timedelta(minutes=45)
+    stale = age > timedelta(minutes=SIGNAL_VALIDITY_MINUTES)
+    expiry = last_close_time + timedelta(minutes=SIGNAL_VALIDITY_MINUTES)
     remaining = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds()))
     res.update({
         "last_price": float(last15["close"]),
         "last_candle_time": last15["datetime"].to_pydatetime(),
+        "generated_at": datetime.now(timezone.utc),
         "stale": stale,
         "expired": remaining <= 0,
         "valid_until": expiry.astimezone(LOCAL_TZ),
@@ -373,10 +380,19 @@ for asset, res in results.items():
     res.setdefault("daily_cap", False)
 daily_count = len(st.session_state.get("daily_keys", []))
 
+# Approval history is intentionally session-scoped; it is not a broker order.
+if "approval_log" not in st.session_state:
+    st.session_state["approval_log"] = []
+if "trade_journal" not in st.session_state:
+    st.session_state["trade_journal"] = []
+
 # ------------------------------ TOP SUMMARY ------------------------------
 
 st.divider()
 st.subheader("MARKET OVERVIEW")
+scan_now_local = datetime.now(LOCAL_TZ)
+next_scan_local = scan_now_local + timedelta(minutes=SCAN_INTERVAL_MINUTES)
+st.info(f"AUTO SCAN: every {SCAN_INTERVAL_MINUTES} minutes while this dashboard is open · Last calculation: {scan_now_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Next scheduled refresh: about {next_scan_local.strftime('%H:%M')} Kabul time. Phone/browser sleep can delay refresh; this is not a push alert.")
 overview_cols = st.columns(4)
 if "GOLD" in results:
     overview_cols[0].metric("XAU/USD", f"{results['GOLD']['last_price']:,.2f}")
@@ -396,7 +412,7 @@ st.caption(f"Daily setup counter: {daily_count}/{MAX_DAILY_SIGNALS} · Kabul dat
 # ------------------------------ SCANNER ------------------------------
 
 st.divider()
-st.subheader("🔎 V8 MARKET SCANNER")
+st.subheader("🔎 V10 MARKET SCANNER")
 scanner = []
 for asset, title in [("GOLD","XAU/USD"),("BTC","BTC/USD")]:
     if asset not in results:
@@ -451,9 +467,36 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
                 col.metric(label,f"{value:,.2f}")
             risk_cash = account_size * risk_pct / 100
             st.info(f"Illustrative risk budget: ${risk_cash:,.2f}. Price risk distance: {r['risk_distance']:.4f}. Position size depends on your broker's contract specifications, tick value and lot rules; do not infer lots from this screen.")
-            st.caption(f"Setup valid until {r['valid_until'].strftime('%Y-%m-%d %H:%M')} Kabul time · {r['remaining']//60} minutes remaining · Planned reward/risk to TP2: 2R.")
+            issued_local = r["generated_at"].astimezone(LOCAL_TZ)
+            st.caption(f"Signal calculated: {issued_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Valid until: {r['valid_until'].strftime('%Y-%m-%d %H:%M')} Kabul time · {r['remaining']//60} minutes remaining · Planned reward/risk to TP2: 2R.")
         else:
             st.caption("No active entry, stop-loss or take-profit levels because the setup did not pass every filter.")
+
+        st.markdown("**MANUAL SIGNAL APPROVAL**")
+        if r["signal"] in ("BUY", "SELL") and r["entry"] is not None and not r["stale"] and not r["expired"]:
+            signal_key = f"{asset}|{r['last_candle_time'].isoformat()}|{r['signal']}|{r['entry']:.8f}"
+            existing = next((x for x in reversed(st.session_state["approval_log"]) if x["signal_key"] == signal_key), None)
+            if existing:
+                st.info(f"Your decision for this setup: {existing['decision']} · {existing['time']}")
+            a1, a2 = st.columns(2)
+            if a1.button("✅ APPROVE FOR MANUAL TRADE", key=f"approve_{asset}_{r['last_candle_time'].value}", use_container_width=True):
+                st.session_state["approval_log"].append({
+                    "signal_key": signal_key, "time": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                    "asset": asset, "decision": "APPROVED", "side": r["signal"],
+                    "entry": float(r["entry"]), "sl": float(r["sl"]), "tp1": float(r["tp1"]),
+                    "tp2": float(r["tp2"]), "tp3": float(r["tp3"]), "score": int(r["score"])
+                })
+                st.success("Approved in this dashboard only. Open MT5 and place the order yourself after checking the live price and contract details.")
+            if a2.button("✖ REJECT SIGNAL", key=f"reject_{asset}_{r['last_candle_time'].value}", use_container_width=True):
+                st.session_state["approval_log"].append({
+                    "signal_key": signal_key, "time": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                    "asset": asset, "decision": "REJECTED", "side": r["signal"],
+                    "entry": float(r["entry"]), "sl": float(r["sl"]), "tp1": float(r["tp1"]),
+                    "tp2": float(r["tp2"]), "tp3": float(r["tp3"]), "score": int(r["score"])
+                })
+                st.warning("Signal rejection recorded in this app session.")
+        else:
+            st.caption("Approval is disabled because there is no valid, unexpired signal.")
 
         st.markdown("**TIMEFRAME ALIGNMENT**")
         tf_rows=[]
@@ -487,6 +530,49 @@ rc2.metric("RISK SETTING",f"{risk_pct:.2f}%")
 rc3.metric("MAX PLANNED LOSS",f"${account_size*risk_pct/100:,.2f}")
 st.caption("Do not use the cash risk figure as a lot-size instruction. Confirm contract specifications with your broker.")
 
+# ------------------------------ MANUAL TRADE JOURNAL ------------------------------
+
+st.divider()
+st.subheader("📝 MANUAL TRADE JOURNAL")
+st.caption("Record trades that you actually placed in MT5. This is a local app-session log, not a permanent cloud database.")
+with st.form("manual_trade_journal_form", clear_on_submit=True):
+    j1, j2, j3 = st.columns(3)
+    journal_asset = j1.selectbox("Market", ["GOLD", "BTC"])
+    journal_side = j2.selectbox("Direction", ["BUY", "SELL"])
+    journal_result = j3.selectbox("Result", ["OPEN", "WIN", "LOSS", "BREAKEVEN", "CANCELLED"])
+    j4, j5, j6 = st.columns(3)
+    journal_entry = j4.number_input("Actual Entry Price", min_value=0.0, value=0.0, format="%.5f")
+    journal_exit = j5.number_input("Exit Price (0 if open)", min_value=0.0, value=0.0, format="%.5f")
+    journal_pnl = j6.number_input("P/L in USD (optional)", value=0.0, format="%.2f")
+    journal_notes = st.text_input("Notes (optional)", max_chars=160)
+    journal_submit = st.form_submit_button("➕ SAVE TRADE RECORD", use_container_width=True)
+    if journal_submit:
+        if journal_entry <= 0:
+            st.error("Enter a valid actual entry price before saving.")
+        else:
+            st.session_state["trade_journal"].append({
+                "Time Kabul": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                "Market": journal_asset, "Direction": journal_side, "Status": journal_result,
+                "Entry": journal_entry, "Exit": journal_exit if journal_exit > 0 else None,
+                "P/L USD": journal_pnl, "Notes": journal_notes
+            })
+            st.success("Trade record saved for this app session.")
+
+if st.session_state["trade_journal"]:
+    journal_df = pd.DataFrame(st.session_state["trade_journal"])
+    st.dataframe(journal_df, use_container_width=True, hide_index=True)
+    st.download_button("⬇️ DOWNLOAD TRADE JOURNAL CSV", journal_df.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"AFG_trade_journal_{today}.csv", mime="text/csv", use_container_width=True)
+else:
+    st.info("No manual trades recorded in this session yet.")
+
+if st.session_state["approval_log"]:
+    with st.expander("Signal approval history"):
+        approval_df = pd.DataFrame(st.session_state["approval_log"])
+        st.dataframe(approval_df.drop(columns=["signal_key"], errors="ignore"), use_container_width=True, hide_index=True)
+        st.download_button("⬇️ DOWNLOAD APPROVAL HISTORY CSV", approval_df.drop(columns=["signal_key"], errors="ignore").to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"AFG_approval_history_{today}.csv", mime="text/csv", use_container_width=True)
+
 # ------------------------------ SESSIONS ------------------------------
 
 st.divider()
@@ -504,14 +590,17 @@ if errors:
             for item in items:
                 st.write(f"- {item}")
 
-with st.expander("V8 methodology, limits and safety"):
+with st.expander("V10 methodology, limits and safety"):
     st.write("""
     - Uses completed candles only; the current forming candle is excluded.
+    - Dashboard recalculates every 40 minutes while the browser session remains active; mobile background sleep or connection loss can delay refresh. No push notifications are sent.
+    - A setup expires 40 minutes after the latest completed 15-minute candle close; expired or stale setups are disabled.
     - Requires aligned 4H, 1H and 15M trends, a 15M EMA pullback and candle confirmation, 5M momentum, RSI and ADX filters.
     - BUY LIMIT / SELL LIMIT levels are analytical estimates, not broker orders.
     - Technical score measures rule alignment only. It is not a win rate, confidence probability or guarantee.
+    - Manual approvals and trade journal records are held in Streamlit session state and can reset after app restart or a new session; download CSV backups regularly.
     - The daily signal counter is held in Streamlit session state. A full app restart or a new session may reset it; it is not a durable account-wide trading lock.
     - This version does not claim a verified 99% accuracy. Validate it with out-of-sample historical testing and a demo account, including fees, spread, slippage and missed limit fills.
     - Position size is intentionally not calculated because broker contract specifications are not known.
     """)
-st.caption("AFG AI GOLD PRO ELITE V8 · Decision-support software only · No trade execution")
+st.caption("AFG AI GOLD PRO ELITE V10 · Decision-support software only · No trade execution")
