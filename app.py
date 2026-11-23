@@ -95,7 +95,7 @@ st.caption("Technical score is not a win probability. Signals are suggestions on
 # -------------------------- SETTINGS --------------------------
 
 API_URL = "https://api.twelvedata.com/time_series"
-SYMBOL = "XAU/USD"
+SYMBOLS = {"GOLD": "XAU/USD", "BTC": "BTC/USD"}
 INTERVALS = {
     "5M": "5min",
     "15M": "15min",
@@ -133,9 +133,9 @@ if not API_KEY:
 # -------------------------- DATA --------------------------
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_candles(interval: str, api_key: str) -> pd.DataFrame:
+def get_candles(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
     params = {
-        "symbol": SYMBOL,
+        "symbol": symbol,
         "interval": interval,
         "outputsize": 1000,
         "apikey": api_key,
@@ -462,135 +462,139 @@ def market_session():
 if refresh:
     st.cache_data.clear()
 
-frames = {}
+market = {}
 errors = []
-
-with st.spinner("Fetching and analyzing gold market data from Twelve Data..."):
-    for label, interval in INTERVALS.items():
-        try:
-            raw = get_candles(interval, API_KEY)
-            frames[label] = add_indicators(raw)
-        except Exception as exc:
-            errors.append(f"{label}: {exc}")
+with st.spinner("Fetching Gold and Bitcoin market data..."):
+    for asset, symbol in SYMBOLS.items():
+        asset_frames = {}
+        for label, interval in INTERVALS.items():
+            try:
+                raw = get_candles(symbol, interval, API_KEY)
+                asset_frames[label] = add_indicators(raw)
+            except Exception as exc:
+                errors.append(f"{asset} {label}: {exc}")
+        if len(asset_frames) == len(INTERVALS):
+            market[asset] = asset_frames
 
 if errors:
-    st.error("Could not retrieve all market data:")
+    st.error("Some market data could not be loaded:")
     for err in errors:
         st.write(f"- {err}")
-    st.info("Check the API key, request limits, and internet connection.")
+    st.info("Check Twelve Data symbol access, API limits and connection. Both assets require all four timeframes.")
     st.stop()
 
-result = analyze_signal(frames, 1.5, 20, 70)
-last_price = float(frames["15M"].iloc[-1]["close"])
-last_time = frames["15M"].iloc[-1]["datetime"].to_pydatetime()
-local_time = last_time.astimezone(LOCAL_TZ)
+results = {}
+for asset, asset_frames in market.items():
+    res = analyze_signal(asset_frames, 1.5, 20, 70)
+    last_time = asset_frames["15M"].iloc[-1]["datetime"].to_pydatetime()
+    latest_close = last_time + timedelta(minutes=15)
+    age = datetime.now(timezone.utc) - latest_close
+    stale = age > timedelta(minutes=45)
+    res["stale_data"] = stale
+    if stale:
+        res.update({"signal": "NO TRADE", "entry": None, "order_type": None,
+                    "sl": None, "tp1": None, "tp2": None, "tp3": None})
+    res["last_time"] = last_time
+    res["last_price"] = float(asset_frames["15M"].iloc[-1]["close"])
+    # A setup is valid for up to 45 minutes after the last closed 15M candle.
+    expiry = latest_close + timedelta(minutes=45)
+    remaining = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds()))
+    res["valid_until"] = expiry.astimezone(LOCAL_TZ)
+    res["valid_remaining"] = remaining
+    results[asset] = res
 
-latest_15m_close = last_time + timedelta(minutes=15)
-data_age = datetime.now(timezone.utc) - latest_15m_close
-data_is_stale = data_age > timedelta(minutes=45)
-
-if data_is_stale:
-    result["signal"] = "NO TRADE"
-    result["entry"] = None
-    result["order_type"] = None
-    result["sl"] = None
-    result["tp1"] = None
-    result["tp2"] = None
-    result["tp3"] = None
-    result["stale_data"] = True
-else:
-    result["stale_data"] = False
-
-# Daily safety limit: count each distinct live signal candle only once.
-# The counter is kept in the current Streamlit session and resets on a new Kabul date.
+# Shared daily cap: no more than 3 new Gold + BTC setups per Kabul day.
 MAX_DAILY_SIGNALS = 3
-today_key = local_time.date().isoformat()
+today_key = datetime.now(LOCAL_TZ).date().isoformat()
 if st.session_state.get("daily_signal_date") != today_key:
     st.session_state["daily_signal_date"] = today_key
     st.session_state["daily_signal_keys"] = []
-
 signal_keys = st.session_state.get("daily_signal_keys", [])
-if result["signal"] in ("BUY", "SELL"):
-    signal_key = f"{last_time.isoformat()}|{result['signal']}"
-    if signal_key not in signal_keys:
-        if len(signal_keys) >= MAX_DAILY_SIGNALS:
-            result["signal"] = "NO TRADE"
-            result["entry"] = None
-            result["order_type"] = None
-            result["sl"] = None
-            result["tp1"] = None
-            result["tp2"] = None
-            result["tp3"] = None
-            result["daily_limit_reached"] = True
-        else:
-            signal_keys.append(signal_key)
-            st.session_state["daily_signal_keys"] = signal_keys
-
-result.setdefault("daily_limit_reached", False)
+for asset, res in results.items():
+    if res["signal"] in ("BUY", "SELL"):
+        key = f"{asset}|{res['last_time'].isoformat()}|{res['signal']}"
+        if key not in signal_keys:
+            if len(signal_keys) >= MAX_DAILY_SIGNALS:
+                res.update({"signal": "NO TRADE", "entry": None, "order_type": None,
+                            "sl": None, "tp1": None, "tp2": None, "tp3": None,
+                            "daily_limit_reached": True})
+            else:
+                signal_keys.append(key)
+                st.session_state["daily_signal_keys"] = signal_keys
+    res.setdefault("daily_limit_reached", False)
 daily_signal_count = len(st.session_state.get("daily_signal_keys", []))
 
 # -------------------------- TOP METRICS --------------------------
 
+gold = results["GOLD"]
+btc = results["BTC"]
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("XAU/USD", f"{last_price:,.2f}")
-m2.metric("Signal", result["signal"])
-m3.metric("Technical Score", f'{result["score"]}%')
-m4.metric("Daily Signals", f"{daily_signal_count}/{MAX_DAILY_SIGNALS}")
-st.caption(f"Market session: {market_session()} · Last closed 15M candle: {local_time.strftime('%Y-%m-%d %H:%M')} Kabul")
+m1.metric("XAU/USD", f"{gold['last_price']:,.2f}")
+m2.metric("GOLD SIGNAL", gold["signal"])
+m3.metric("BTC/USD", f"{btc['last_price']:,.2f}")
+m4.metric("DAILY SIGNALS", f"{daily_signal_count}/{MAX_DAILY_SIGNALS}")
 
+# -------------------------- SIGNAL PANELS --------------------------
 
-# -------------------------- SIGNAL PANEL --------------------------
+for asset, title in [("GOLD", "XAU/USD GOLD"), ("BTC", "BTC/USD BITCOIN")]:
+    res = results[asset]
+    asset_frames = market[asset]
+    st.divider()
+    st.subheader(f"🎯 {title} SIGNAL")
+    if res["signal"] == "BUY":
+        st.success("BUY LIMIT setup calculated by the AI — pending until price reaches entry.")
+    elif res["signal"] == "SELL":
+        st.error("SELL LIMIT setup calculated by the AI — pending until price reaches entry.")
+    elif res.get("stale_data"):
+        st.warning("STALE DATA — new signals are disabled until fresh market data arrives.")
+    elif res.get("daily_limit_reached"):
+        st.warning("DAILY LIMIT REACHED — maximum 3 combined Gold and BTC signals for today.")
+    else:
+        st.warning("NO TRADE — required conditions are not fully aligned.")
+
+    if res["signal"] != "NO TRADE":
+        st.info(f"{res['order_type']} · PENDING · Current price: {res['current_price']:,.2f}")
+        cols = st.columns(5)
+        values = [("LIMIT ENTRY", res["entry"]), ("STOP LOSS", res["sl"]),
+                  ("TAKE PROFIT 1", res["tp1"]), ("TAKE PROFIT 2", res["tp2"]),
+                  ("TAKE PROFIT 3", res["tp3"])]
+        for col, (label, value) in zip(cols, values):
+            col.metric(label, f"{value:,.2f}")
+        st.caption(f"Technical score: {res['score']}% · Signal valid until {res['valid_until'].strftime('%H:%M')} Kabul time · {res['valid_remaining']//60} min remaining")
+    else:
+        st.caption("Signal validity: Not applicable — no active setup.")
+
+# -------------------------- TRADING SESSIONS --------------------------
 
 st.divider()
-st.subheader("🎯 TRADE SIGNAL")
-
-if result["signal"] == "BUY":
-    st.success("BUY LIMIT setup calculated by the AI — pending until price reaches the entry level.")
-elif result["signal"] == "SELL":
-    st.error("SELL LIMIT setup calculated by the AI — pending until price reaches the entry level.")
-else:
-    if result.get("stale_data", False):
-        st.warning(
-            "STALE MARKET DATA — the latest fully closed 15M candle is older than 45 minutes. "
-            "Live signals are disabled until fresh market data arrives."
-        )
-    elif result.get("daily_limit_reached", False):
-        st.warning("DAILY LIMIT REACHED — the maximum of 3 signals has been reached for this Kabul market day.")
-    else:
-        st.warning("NO TRADE — entry conditions are not fully met. Do not force a trade.")
-
-if result["signal"] != "NO TRADE":
-    st.info(f"ORDER TYPE: {result['order_type']} · STATUS: PENDING · CURRENT PRICE: {result['current_price']:,.2f}")
-    cols = st.columns(5)
-    values = [
-        ("LIMIT ENTRY", result["entry"]),
-        ("STOP LOSS", result["sl"]),
-        ("TAKE PROFIT 1", result["tp1"]),
-        ("TAKE PROFIT 2", result["tp2"]),
-        ("TAKE PROFIT 3", result["tp3"]),
-    ]
-    for col, (label, value) in zip(cols, values):
-        col.metric(label, f"{value:,.2f}")
-    st.caption("Entry is calculated from the 15M EMA20 pullback. SL uses recent swing structure; targets are 1R, 2R and 3R. This app does not place broker orders.")
-else:
-    st.caption("No valid setup. Entry, SL and TP are hidden until all confirmation rules are met.")
+st.subheader("🌍 TRADING SESSIONS")
+now_utc = datetime.now(timezone.utc)
+tokyo_now = now_utc.astimezone(ZoneInfo("Asia/Tokyo"))
+london_now = now_utc.astimezone(ZoneInfo("Europe/London"))
+ny_now = now_utc.astimezone(ZoneInfo("America/New_York"))
+session_states = [
+    ("ASIA", 9 <= tokyo_now.hour < 18, tokyo_now.strftime('%H:%M')),
+    ("LONDON", 8 <= london_now.hour < 17, london_now.strftime('%H:%M')),
+    ("NEW YORK", 8 <= ny_now.hour < 17, ny_now.strftime('%H:%M')),
+]
+sc = st.columns(3)
+for col, (name, active, clock) in zip(sc, session_states):
+    col.metric(name, "OPEN" if active else "CLOSED", f"Local exchange time {clock}")
 
 # -------------------------- MARKET OVERVIEW --------------------------
 
 st.divider()
 st.subheader("📊 MARKET OVERVIEW")
-rows = []
-for label in ["5M", "15M", "1H", "4H"]:
-    r = frames[label].iloc[-1]
-    rows.append({
-        "Timeframe": label,
-        "Price": round(float(r["close"]), 2),
-        "Trend": trend_of(r),
-        "RSI": round(float(r["rsi"]), 1),
-        "ADX": round(float(r["adx"]), 1),
-    })
-st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+for asset, title in [("GOLD", "XAU/USD"), ("BTC", "BTC/USD")]:
+    st.markdown(f"**{title}**")
+    rows = []
+    for label in ["5M", "15M", "1H", "4H"]:
+        r = market[asset][label].iloc[-1]
+        rows.append({"Timeframe": label, "Price": round(float(r["close"]), 2),
+                     "Trend": trend_of(r), "RSI": round(float(r["rsi"]), 1),
+                     "ADX": round(float(r["adx"]), 1)})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 with st.expander("How the signal is calculated"):
     st.write("The system checks 4H and 1H trend direction, 15M trend and pullback, RSI, ADX, candle confirmation and 5M momentum. It only shows a limit setup when the entry is on the correct side of the current price and the stop distance is acceptable.")
-    st.caption("Maximum 3 new signals per Kabul day in this app session. This is not a broker-side limit and may reset if the app session restarts.")
+    st.caption("Maximum 3 combined Gold and BTC signals per Kabul day in this app session. The signal timer is a technical validity estimate, not a broker order expiry; verify all prices with your broker. This app does not place trades.")
