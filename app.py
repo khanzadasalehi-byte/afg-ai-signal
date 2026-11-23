@@ -1,11 +1,14 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
-# ==========================================
-# AFG AI GOLD PRO - Gold analysis dashboard
-# ==========================================
+# =========================================================
+# AFG AI GOLD PRO - SESSIONS + FUNDAMENTAL + TECHNICAL
+# =========================================================
 
 st.set_page_config(
     page_title="AFG AI GOLD PRO",
@@ -14,717 +17,912 @@ st.set_page_config(
 )
 
 st.title("🇦🇫 AFG AI GOLD PRO")
-st.subheader("Gold Technical Analysis | Signals | Multi-Timeframe | Backtesting")
+st.subheader("Gold Market Analysis | Technical + Fundamental + Sessions")
 
-TIMEOUT = 30
+st.caption(
+    "تحلیل قانون‌محور بازار طلا با درصد قدرت سیگنال؛ "
+    "این درصدها احتمال واقعی برد یا تضمین سود نیستند."
+)
+
+# ---------------- CONFIG ----------------
+
 API_URL = "https://api.twelvedata.com/time_series"
+TIMEOUT = 20
 
 TIMEFRAMES = {
-    "1 دقیقه": "1min",
     "5 دقیقه": "5min",
     "15 دقیقه": "15min",
     "1 ساعت": "1h",
     "4 ساعت": "4h"
 }
 
+WEIGHTS = {
+    "technical": 0.40,
+    "fundamental": 0.35,
+    "session": 0.25
+}
 
-# ==========================================
-# DATA
-# ==========================================
+KABUL = ZoneInfo("Asia/Kabul")
+TOKYO = ZoneInfo("Asia/Tokyo")
+LONDON = ZoneInfo("Europe/London")
+NEW_YORK = ZoneInfo("America/New_York")
 
-def get_api_key():
-    try:
-        key = st.secrets["TWELVE_DATA_API_KEY"]
-    except Exception:
-        raise ValueError(
-            "کلید Twelve Data پیدا نشد. در Streamlit → Settings → Secrets "
-            "مقدار TWELVE_DATA_API_KEY را تنظیم کن."
-        )
+# ---------------- API KEY ----------------
 
-    if not key:
-        raise ValueError("کلید Twelve Data خالی است.")
+try:
+    saved_key = st.secrets.get("TWELVE_DATA_API_KEY", "")
+except Exception:
+    saved_key = ""
 
-    return key
+with st.sidebar:
+    st.header("تنظیمات سیستم")
+
+    api_key = st.text_input(
+        "Twelve Data API Key",
+        value=saved_key,
+        type="password"
+    )
+
+    selected_tf = st.selectbox(
+        "تایم‌فریم اصلی",
+        list(TIMEFRAMES.keys()),
+        index=1
+    )
+
+    risk_percent = st.slider(
+        "ریسک هر معامله (%)",
+        min_value=0.5,
+        max_value=3.0,
+        value=1.0,
+        step=0.5
+    )
+
+    account_balance = st.number_input(
+        "سرمایه فرضی ($)",
+        min_value=10.0,
+        value=500.0,
+        step=50.0
+    )
+
+    refresh = st.button("🔄 دریافت اطلاعات جدید", use_container_width=True)
+
+if not api_key:
+    st.warning(
+        "کلید Twelve Data پیدا نشد. آن را در قسمت تنظیمات وارد کن "
+        "یا در Streamlit Secrets با نام TWELVE_DATA_API_KEY ذخیره کن."
+    )
+    st.stop()
 
 
-def fetch_gold_candles(interval, outputsize=250):
-    api_key = get_api_key()
+# ---------------- DATA FETCH ----------------
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_data(symbol, interval, key, outputsize=200):
+
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "outputsize": outputsize,
+        "apikey": key,
+        "format": "JSON",
+        "timezone": "UTC"
+    }
 
     response = requests.get(
         API_URL,
-        params={
-            "symbol": "XAU/USD",
-            "interval": interval,
-            "outputsize": outputsize,
-            "timezone": "UTC",
-            "apikey": api_key
-        },
+        params=params,
         timeout=TIMEOUT
     )
+
     response.raise_for_status()
-    payload = response.json()
+    result = response.json()
 
-    if "values" not in payload:
-        message = payload.get("message") or payload.get("status") or str(payload)
-        raise ValueError(f"Twelve Data: {message}")
+    if "values" not in result:
+        message = result.get(
+            "message",
+            result.get("code", "Unknown API error")
+        )
+        raise ValueError(f"{symbol}: {message}")
 
-    df = pd.DataFrame(payload["values"])
+    df = pd.DataFrame(result["values"])
 
-    required = ["datetime", "open", "high", "low", "close"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"ستون‌های داده ناقص است: {missing}")
+    if df.empty:
+        raise ValueError(f"No data returned for {symbol}")
+
+    df["datetime"] = pd.to_datetime(
+        df["datetime"],
+        utc=True,
+        errors="coerce"
+    )
 
     for col in ["open", "high", "low", "close"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce", utc=True)
+    if "volume" in df.columns:
+        df["volume"] = pd.to_numeric(
+            df["volume"],
+            errors="coerce"
+        )
+    else:
+        df["volume"] = 0
 
     df = df.dropna(
         subset=["datetime", "open", "high", "low", "close"]
     )
-    df = df.sort_values("datetime").drop_duplicates("datetime")
-    df = df.reset_index(drop=True)
 
-    # Exclude the newest candle because it may still be forming.
-    if len(df) > 1:
-        df = df.iloc[:-1].copy().reset_index(drop=True)
-
-    if len(df) < 210:
-        raise ValueError(
-            f"تعداد کندل کافی نیست: {len(df)}. حداقل 210 کندل بسته‌شده لازم است."
-        )
+    df = df.sort_values("datetime").reset_index(drop=True)
 
     return df
 
 
-# ==========================================
-# INDICATORS AND SIGNAL
-# ==========================================
+# ---------------- INDICATORS ----------------
 
-def afg_add_indicators(df):
+def add_indicators(df):
+
     df = df.copy()
 
-    for col in ["open", "high", "low", "close"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["EMA20"] = df["close"].ewm(
+        span=20, adjust=False
+    ).mean()
 
-    df = df.dropna(
-        subset=["open", "high", "low", "close"]
-    ).reset_index(drop=True)
+    df["EMA50"] = df["close"].ewm(
+        span=50, adjust=False
+    ).mean()
 
-    if len(df) < 210:
-        raise ValueError("حداقل 210 کندل برای محاسبه اندیکاتورها لازم است.")
+    df["EMA200"] = df["close"].ewm(
+        span=200, adjust=False
+    ).mean()
 
-    close = df["close"]
+    delta = df["close"].diff()
 
-    df["EMA20"] = close.ewm(span=20, adjust=False).mean()
-    df["EMA50"] = close.ewm(span=50, adjust=False).mean()
-    df["EMA200"] = close.ewm(span=200, adjust=False).mean()
-
-    delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
-    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    avg_gain = gain.ewm(
+        alpha=1 / 14, adjust=False
+    ).mean()
+
+    avg_loss = loss.ewm(
+        alpha=1 / 14, adjust=False
+    ).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
+
     df["RSI"] = 100 - (100 / (1 + rs))
-    df.loc[(avg_loss == 0) & (avg_gain > 0), "RSI"] = 100
-    df.loc[(avg_loss == 0) & (avg_gain == 0), "RSI"] = 50
+    df["RSI"] = df["RSI"].fillna(50)
 
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
+    ema12 = df["close"].ewm(
+        span=12, adjust=False
+    ).mean()
+
+    ema26 = df["close"].ewm(
+        span=26, adjust=False
+    ).mean()
+
     df["MACD"] = ema12 - ema26
-    df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
-    df["MACD_HIST"] = df["MACD"] - df["MACD_SIGNAL"]
+    df["MACD_SIGNAL"] = df["MACD"].ewm(
+        span=9, adjust=False
+    ).mean()
 
-    previous_close = close.shift(1)
-    tr = pd.concat([
-        df["high"] - df["low"],
-        (df["high"] - previous_close).abs(),
-        (df["low"] - previous_close).abs()
-    ], axis=1).max(axis=1)
-
-    df["ATR"] = tr.ewm(alpha=1/14, adjust=False).mean()
-
-    up_move = df["high"].diff()
-    down_move = -df["low"].diff()
-
-    plus_dm = up_move.where(
-        (up_move > down_move) & (up_move > 0), 0
+    df["MACD_HIST"] = (
+        df["MACD"] - df["MACD_SIGNAL"]
     )
-    minus_dm = down_move.where(
-        (down_move > up_move) & (down_move > 0), 0
+
+    previous_close = df["close"].shift(1)
+
+    tr = pd.concat(
+        [
+            df["high"] - df["low"],
+            (df["high"] - previous_close).abs(),
+            (df["low"] - previous_close).abs()
+        ],
+        axis=1
+    ).max(axis=1)
+
+    df["ATR"] = tr.ewm(
+        alpha=1 / 14, adjust=False
+    ).mean()
+
+    plus_dm = df["high"].diff()
+    minus_dm = -df["low"].diff()
+
+    plus_dm = plus_dm.where(
+        (plus_dm > minus_dm) & (plus_dm > 0), 0
+    )
+
+    minus_dm = minus_dm.where(
+        (minus_dm > plus_dm) & (minus_dm > 0), 0
     )
 
     atr_safe = df["ATR"].replace(0, np.nan)
 
-    df["PLUS_DI"] = (
-        100 * plus_dm.ewm(alpha=1/14, adjust=False).mean() / atr_safe
-    )
-    df["MINUS_DI"] = (
-        100 * minus_dm.ewm(alpha=1/14, adjust=False).mean() / atr_safe
+    plus_di = 100 * plus_dm.ewm(
+        alpha=1 / 14, adjust=False
+    ).mean() / atr_safe
+
+    minus_di = 100 * minus_dm.ewm(
+        alpha=1 / 14, adjust=False
+    ).mean() / atr_safe
+
+    dx = (
+        100 * (plus_di - minus_di).abs()
+        / (plus_di + minus_di).replace(0, np.nan)
     )
 
-    di_sum = (df["PLUS_DI"] + df["MINUS_DI"]).replace(0, np.nan)
-    dx = 100 * (df["PLUS_DI"] - df["MINUS_DI"]).abs() / di_sum
-    df["ADX"] = dx.ewm(alpha=1/14, adjust=False).mean()
+    df["PLUS_DI"] = plus_di.fillna(0)
+    df["MINUS_DI"] = minus_di.fillna(0)
 
-    middle = close.rolling(20).mean()
-    deviation = close.rolling(20).std()
-    df["BB_middle"] = middle
-    df["BB_upper"] = middle + 2 * deviation
-    df["BB_lower"] = middle - 2 * deviation
+    df["ADX"] = dx.ewm(
+        alpha=1 / 14, adjust=False
+    ).mean().fillna(0)
+
+    df["BB_MID"] = df["close"].rolling(20).mean()
+    bb_std = df["close"].rolling(20).std()
+
+    df["BB_UPPER"] = df["BB_MID"] + 2 * bb_std
+    df["BB_LOWER"] = df["BB_MID"] - 2 * bb_std
 
     return df
 
 
-def afg_generate_signal(df):
-    last = df.iloc[-1]
+# ---------------- TECHNICAL SCORE ----------------
 
-    required = [
-        "EMA20", "EMA50", "EMA200", "RSI",
-        "MACD", "MACD_SIGNAL", "ATR",
-        "ADX", "PLUS_DI", "MINUS_DI"
-    ]
+def technical_analysis(df):
 
-    if last[required].isna().any():
-        raise ValueError("اندیکاتورها هنوز کامل محاسبه نشده‌اند.")
+    row = df.iloc[-1]
+    previous = df.iloc[-2]
 
-    score = 0
+    score = 0.0
     reasons = []
 
-    if last["EMA20"] > last["EMA50"] > last["EMA200"]:
-        score += 2
-        reasons.append("چیدمان EMA صعودی است")
-    elif last["EMA20"] < last["EMA50"] < last["EMA200"]:
-        score -= 2
-        reasons.append("چیدمان EMA نزولی است")
+    # EMA trend
+    if row["close"] > row["EMA20"] > row["EMA50"]:
+        score += 0.25
+        reasons.append("روند EMA صعودی")
 
-    if last["close"] > last["EMA20"]:
-        score += 1
-        reasons.append("قیمت بالاتر از EMA20 است")
-    elif last["close"] < last["EMA20"]:
-        score -= 1
-        reasons.append("قیمت پایین‌تر از EMA20 است")
+    elif row["close"] < row["EMA20"] < row["EMA50"]:
+        score -= 0.25
+        reasons.append("روند EMA نزولی")
 
-    if 50 < last["RSI"] < 70:
-        score += 1
-        reasons.append("قدرت RSI به نفع خریداران است")
-    elif 30 < last["RSI"] < 50:
-        score -= 1
-        reasons.append("قدرت RSI به نفع فروشندگان است")
-    elif last["RSI"] >= 70:
-        reasons.append("هشدار اشباع خرید RSI")
-    elif last["RSI"] <= 30:
-        reasons.append("هشدار اشباع فروش RSI")
+    # Long-term trend
+    if row["close"] > row["EMA200"]:
+        score += 0.15
+        reasons.append("قیمت بالاتر از EMA200")
 
-    if last["MACD"] > last["MACD_SIGNAL"]:
-        score += 1
-        reasons.append("MACD صعودی است")
-    elif last["MACD"] < last["MACD_SIGNAL"]:
-        score -= 1
-        reasons.append("MACD نزولی است")
+    elif row["close"] < row["EMA200"]:
+        score -= 0.15
+        reasons.append("قیمت پایین‌تر از EMA200")
 
-    if last["ADX"] >= 20:
-        if last["PLUS_DI"] > last["MINUS_DI"]:
-            score += 1
-            reasons.append("ADX جهت صعودی را تأیید می‌کند")
-        elif last["MINUS_DI"] > last["PLUS_DI"]:
-            score -= 1
-            reasons.append("ADX جهت نزولی را تأیید می‌کند")
+    # RSI
+    if 50 < row["RSI"] < 70:
+        score += 0.15
+        reasons.append("RSI مثبت")
+
+    elif 30 < row["RSI"] < 50:
+        score -= 0.15
+        reasons.append("RSI منفی")
+
+    elif row["RSI"] >= 70:
+        score -= 0.05
+        reasons.append("RSI در محدوده اشباع خرید")
+
+    elif row["RSI"] <= 30:
+        score += 0.05
+        reasons.append("RSI در محدوده اشباع فروش")
+
+    # MACD
+    if row["MACD_HIST"] > 0:
+        score += 0.20
+        reasons.append("MACD صعودی")
+
+    elif row["MACD_HIST"] < 0:
+        score -= 0.20
+        reasons.append("MACD نزولی")
+
+    # ADX / Direction
+    if row["ADX"] >= 20:
+        if row["PLUS_DI"] > row["MINUS_DI"]:
+            score += 0.15
+            reasons.append("قدرت روند خریداران")
+
+        elif row["MINUS_DI"] > row["PLUS_DI"]:
+            score -= 0.15
+            reasons.append("قدرت روند فروشندگان")
+
+    # Bollinger
+    if row["close"] > row["BB_MID"]:
+        score += 0.10
+
+    elif row["close"] < row["BB_MID"]:
+        score -= 0.10
+
+    score = float(np.clip(score, -1, 1))
+
+    return score, reasons
+
+
+# ---------------- SESSION ANALYSIS ----------------
+
+def session_status():
+
+    now_utc = datetime.now(ZoneInfo("UTC"))
+
+    tokyo_time = now_utc.astimezone(TOKYO)
+    london_time = now_utc.astimezone(LONDON)
+    ny_time = now_utc.astimezone(NEW_YORK)
+    kabul_time = now_utc.astimezone(KABUL)
+
+    def is_between(t, start, end):
+        return start <= t < end
+
+    asia_active = is_between(
+        tokyo_time.time(),
+        time(9, 0),
+        time(18, 0)
+    )
+
+    london_active = is_between(
+        london_time.time(),
+        time(8, 0),
+        time(17, 0)
+    )
+
+    ny_active = is_between(
+        ny_time.time(),
+        time(8, 0),
+        time(17, 0)
+    )
+
+    active = []
+
+    if asia_active:
+        active.append("Asia")
+
+    if london_active:
+        active.append("London")
+
+    if ny_active:
+        active.append("New York")
+
+    if london_active and ny_active:
+        label = "London + New York Overlap"
+    elif active:
+        label = " + ".join(active)
     else:
-        reasons.append("قدرت روند ضعیف است")
+        label = "No Major Session"
 
-    if score >= 4:
+    return {
+        "active": active,
+        "label": label,
+        "kabul": kabul_time,
+        "tokyo": tokyo_time,
+        "london": london_time,
+        "new_york": ny_time
+    }
+
+
+def session_analysis(df, sessions):
+
+    if not sessions["active"]:
+        return 0.0, [
+            "در حال حاضر سشن اصلی فعال نیست"
+        ]
+
+    recent = df.tail(20)
+
+    if len(recent) < 5:
+        return 0.0, ["داده کافی برای تحلیل سشن موجود نیست"]
+
+    close = float(recent["close"].iloc[-1])
+    old_close = float(recent["close"].iloc[-5])
+
+    momentum = (close - old_close) / old_close
+
+    recent_high = float(recent["high"].iloc[:-1].max())
+    recent_low = float(recent["low"].iloc[:-1].min())
+
+    score = 0.0
+    reasons = []
+
+    if close > recent_high:
+        score += 0.55
+        reasons.append("شکست سقف اخیر")
+
+    elif close < recent_low:
+        score -= 0.55
+        reasons.append("شکست کف اخیر")
+
+    if momentum > 0:
+        score += 0.30
+        reasons.append("مومنتوم مثبت در سشن")
+
+    elif momentum < 0:
+        score -= 0.30
+        reasons.append("مومنتوم منفی در سشن")
+
+    if "London" in sessions["active"]:
+        score *= 1.05
+        reasons.append("فعال بودن سشن لندن")
+
+    if "New York" in sessions["active"]:
+        score *= 1.10
+        reasons.append("فعال بودن سشن نیویورک")
+
+    if "Asia" in sessions["active"]:
+        reasons.append("فعال بودن سشن آسیا")
+
+    score = float(np.clip(score, -1, 1))
+
+    return score, reasons
+
+
+# ---------------- FUNDAMENTAL PROXY ----------------
+
+def fundamental_analysis(gold_df, eurusd_df, usdjpy_df):
+
+    reasons = []
+
+    # EUR/USD falling can indicate USD strength.
+    eur_change = (
+        eurusd_df["close"].iloc[-1]
+        / eurusd_df["close"].iloc[-5] - 1
+    )
+
+    # USD/JPY rising can indicate USD strength.
+    jpy_change = (
+        usdjpy_df["close"].iloc[-1]
+        / usdjpy_df["close"].iloc[-5] - 1
+    )
+
+    usd_strength = (
+        (-float(eur_change) + float(jpy_change)) / 2
+    )
+
+    # Rising USD is generally a headwind for gold.
+    usd_score = -np.tanh(usd_strength * 300)
+
+    # Gold's recent momentum is used as a secondary market proxy.
+    gold_change = (
+        gold_df["close"].iloc[-1]
+        / gold_df["close"].iloc[-5] - 1
+    )
+
+    gold_momentum_score = np.tanh(
+        float(gold_change) * 300
+    )
+
+    score = (
+        0.70 * usd_score
+        + 0.30 * gold_momentum_score
+    )
+
+    if usd_strength > 0:
+        reasons.append(
+            "قدرت نسبی دلار افزایش یافته؛ فشار احتمالی بر طلا"
+        )
+    elif usd_strength < 0:
+        reasons.append(
+            "قدرت نسبی دلار کاهش یافته؛ حمایت احتمالی از طلا"
+        )
+    else:
+        reasons.append("تغییر قابل‌توجهی در شاخص جایگزین دلار دیده نشد")
+
+    if gold_change > 0:
+        reasons.append("مومنتوم کوتاه‌مدت طلا مثبت است")
+    else:
+        reasons.append("مومنتوم کوتاه‌مدت طلا منفی است")
+
+    reasons.append(
+        "این تحلیل جایگزین فاندامنتال است؛ "
+        "اخبار زنده و نرخ بهره مستقیماً دریافت نمی‌شوند."
+    )
+
+    return float(np.clip(score, -1, 1)), reasons
+
+
+# ---------------- MULTI TIMEFRAME ----------------
+
+def timeframe_direction(df):
+
+    row = df.iloc[-1]
+
+    if (
+        row["close"] > row["EMA20"]
+        and row["EMA20"] > row["EMA50"]
+        and row["MACD_HIST"] > 0
+    ):
+        return "BUY"
+
+    if (
+        row["close"] < row["EMA20"]
+        and row["EMA20"] < row["EMA50"]
+        and row["MACD_HIST"] < 0
+    ):
+        return "SELL"
+
+    return "NO TRADE"
+
+
+# ---------------- SIGNAL ENGINE ----------------
+
+def calculate_signal(technical, fundamental, session):
+
+    final_score = (
+        technical * WEIGHTS["technical"]
+        + fundamental * WEIGHTS["fundamental"]
+        + session * WEIGHTS["session"]
+    )
+
+    buy_percent = (final_score + 1) * 50
+    sell_percent = 100 - buy_percent
+
+    if buy_percent >= 65:
         signal = "BUY"
-    elif score <= -4:
+
+    elif sell_percent >= 65:
         signal = "SELL"
+
     else:
         signal = "NO TRADE"
 
-    return signal, score, reasons
-
-
-# ==========================================
-# DISPLAY
-# ==========================================
-
-def show_signal(df, timeframe_name):
-    df = afg_add_indicators(df)
-    signal, score, reasons = afg_generate_signal(df)
-    last = df.iloc[-1]
-
-    st.caption(
-        f"تایم‌فریم: {timeframe_name} | "
-        f"آخرین کندل بسته‌شده (UTC): {last['datetime']}"
+    return (
+        signal,
+        round(buy_percent, 1),
+        round(sell_percent, 1),
+        round(abs(final_score) * 100, 1)
     )
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("قیمت بسته‌شدن", f"${last['close']:,.2f}")
-    c2.metric("RSI", f"{last['RSI']:.2f}")
-    c3.metric("ADX", f"{last['ADX']:.2f}")
-    c4.metric("ATR", f"{last['ATR']:.3f}")
 
-    st.subheader(f"نتیجه تحلیل: {signal}")
+# ---------------- MAIN APP ----------------
+
+if refresh:
+    st.cache_data.clear()
+
+try:
+
+    with st.spinner("در حال دریافت اطلاعات بازار طلا..."):
+
+        interval = TIMEFRAMES[selected_tf]
+
+        gold_raw = fetch_data(
+            "XAU/USD", interval, api_key, 250
+        )
+
+        gold = add_indicators(gold_raw)
+
+        # Additional timeframes
+        mtf_data = {}
+
+        for label, tf in TIMEFRAMES.items():
+            if label == selected_tf:
+                mtf_data[label] = gold
+            else:
+                raw = fetch_data(
+                    "XAU/USD", tf, api_key, 220
+                )
+                mtf_data[label] = add_indicators(raw)
+
+        # Fundamental proxy data
+        eurusd = fetch_data(
+            "EUR/USD", "15min", api_key, 100
+        )
+
+        usdjpy = fetch_data(
+            "USD/JPY", "15min", api_key, 100
+        )
+
+    # Scores
+    tech_score, tech_reasons = technical_analysis(gold)
+
+    sessions = session_status()
+
+    session_score, session_reasons = session_analysis(
+        gold, sessions
+    )
+
+    fund_score, fund_reasons = fundamental_analysis(
+        gold, eurusd, usdjpy
+    )
+
+    signal, buy_pct, sell_pct, strength = calculate_signal(
+        tech_score,
+        fund_score,
+        session_score
+    )
+
+    latest = gold.iloc[-1]
+
+    price = float(latest["close"])
+    atr = float(latest["ATR"])
+
+    if not np.isfinite(atr) or atr <= 0:
+        atr = price * 0.002
+
+    # SL / TP
     if signal == "BUY":
-        st.success("BUY — شرایط تکنیکال صعودی")
+        stop_loss = price - (1.5 * atr)
+        take_profit = price + (3.0 * atr)
+
     elif signal == "SELL":
-        st.error("SELL — شرایط تکنیکال نزولی")
+        stop_loss = price + (1.5 * atr)
+        take_profit = price - (3.0 * atr)
+
     else:
-        st.warning("NO TRADE — منتظر تأیید بیشتر بمان")
+        stop_loss = None
+        take_profit = None
 
-    st.metric("امتیاز تکنیکال", f"{score:+d} از 6")
+    risk_amount = account_balance * risk_percent / 100
 
-    st.write("**دلایل تحلیل:**")
-    for reason in reasons:
-        st.write(f"- {reason}")
+    # Approximate position size:
+    # Assumes 1 unit = 1 ounce and ignores broker leverage/margin rules.
+    stop_distance = 1.5 * atr
 
-    if signal != "NO TRADE" and last["ATR"] > 0:
-        entry = float(last["close"])
-        risk = 1.5 * float(last["ATR"])
+    position_size = (
+        risk_amount / stop_distance
+        if stop_distance > 0 else 0
+    )
 
-        if signal == "BUY":
-            sl = entry - risk
-            tp1 = entry + risk
-            tp2 = entry + 2 * risk
-        else:
-            sl = entry + risk
-            tp1 = entry - risk
-            tp2 = entry - 2 * risk
-
-        st.subheader("سطوح تخمینی (نه تضمینی)")
-        x1, x2, x3, x4 = st.columns(4)
-        x1.metric("Entry مرجع", f"${entry:.2f}")
-        x2.metric("Stop Loss", f"${sl:.2f}")
-        x3.metric("Take Profit 1", f"${tp1:.2f}")
-        x4.metric("Take Profit 2", f"${tp2:.2f}")
-
-    chart = df.tail(100).set_index("datetime")
-    st.subheader("نمودار قیمت و EMA")
-    st.line_chart(chart[["close", "EMA20", "EMA50", "EMA200"]])
-
-    with st.expander("اندیکاتورهای بیشتر"):
-        st.line_chart(
-            chart[["BB_upper", "BB_middle", "BB_lower", "close"]]
-        )
-        st.line_chart(
-            chart[["MACD", "MACD_SIGNAL", "MACD_HIST"]]
-        )
-
-    return {
-        "signal": signal,
-        "score": score,
-        "price": float(last["close"]),
-        "atr": float(last["ATR"]),
-        "datetime": last["datetime"]
+    # Multi-timeframe directions
+    mtf_results = {
+        label: timeframe_direction(data)
+        for label, data in mtf_data.items()
     }
 
+    buy_count = list(mtf_results.values()).count("BUY")
+    sell_count = list(mtf_results.values()).count("SELL")
 
-# ==========================================
-# MULTI-TIMEFRAME CONFIRMATION
-# ==========================================
-
-def multi_timeframe_analysis():
-    intervals = {
-        "5 دقیقه": "5min",
-        "15 دقیقه": "15min",
-        "1 ساعت": "1h",
-        "4 ساعت": "4h"
-    }
-
-    results = {}
-    progress = st.progress(0)
-
-    for index, (name, interval) in enumerate(intervals.items()):
-        frame = fetch_gold_candles(interval, 250)
-        frame = afg_add_indicators(frame)
-        signal, score, reasons = afg_generate_signal(frame)
-        last = frame.iloc[-1]
-
-        results[name] = {
-            "signal": signal,
-            "score": score,
-            "price": float(last["close"]),
-            "atr": float(last["ATR"]),
-            "datetime": last["datetime"]
-        }
-        progress.progress((index + 1) / len(intervals))
-
-    st.subheader("نتیجه هر تایم‌فریم")
-    for name, item in results.items():
-        st.write(
-            f"**{name}:** {item['signal']} | "
-            f"امتیاز: {item['score']:+d} | "
-            f"قیمت: ${item['price']:.2f}"
-        )
-
-    buy_count = sum(v["signal"] == "BUY" for v in results.values())
-    sell_count = sum(v["signal"] == "SELL" for v in results.values())
-
-    final_signal = "NO TRADE"
-    if (
-        results["1 ساعت"]["signal"] == "BUY"
-        and results["4 ساعت"]["signal"] == "BUY"
-        and buy_count >= 3
-    ):
-        final_signal = "BUY"
-    elif (
-        results["1 ساعت"]["signal"] == "SELL"
-        and results["4 ساعت"]["signal"] == "SELL"
-        and sell_count >= 3
-    ):
-        final_signal = "SELL"
+    # ---------------- DASHBOARD ----------------
 
     st.divider()
-    st.subheader("سیگنال نهایی چندتایم‌فریمی")
 
-    if final_signal == "BUY":
-        st.success("BUY — روند صعودی در تایم‌فریم‌های بالاتر تأیید شده")
-    elif final_signal == "SELL":
-        st.error("SELL — روند نزولی در تایم‌فریم‌های بالاتر تأیید شده")
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "قیمت فعلی طلا",
+        f"${price:,.2f}"
+    )
+
+    col2.metric(
+        "قدرت سیگنال",
+        f"{strength}%"
+    )
+
+    col3.metric(
+        "BUY",
+        f"{buy_pct}%"
+    )
+
+    col4.metric(
+        "SELL",
+        f"{sell_pct}%"
+    )
+
+    st.divider()
+
+    # Main signal
+    if signal == "BUY":
+        st.success(f"سیگنال نهایی: BUY | قدرت جهت: {strength}%")
+
+    elif signal == "SELL":
+        st.error(f"سیگنال نهایی: SELL | قدرت جهت: {strength}%")
+
     else:
-        st.warning("NO TRADE — تأیید کافی وجود ندارد")
+        st.warning(
+            f"سیگنال نهایی: NO TRADE | قدرت جهت: {strength}%"
+        )
 
-    if final_signal != "NO TRADE":
-        entry = results["15 دقیقه"]["price"]
-        atr = results["15 دقیقه"]["atr"]
-        risk = 1.5 * atr
+    # Weighted components
+    st.subheader("📊 ترکیب سه بخش تحلیل")
 
-        if final_signal == "BUY":
-            sl, tp1, tp2 = entry - risk, entry + risk, entry + 2 * risk
-        else:
-            sl, tp1, tp2 = entry + risk, entry - risk, entry - 2 * risk
+    components = pd.DataFrame({
+        "بخش تحلیل": [
+            "تکنیکال",
+            "فاندامنتال",
+            "سشن بازار"
+        ],
+        "امتیاز جهت‌دار (%)": [
+            round((tech_score + 1) * 50, 1),
+            round((fund_score + 1) * 50, 1),
+            round((session_score + 1) * 50, 1)
+        ],
+        "وزن": [
+            "40%",
+            "35%",
+            "25%"
+        ]
+    })
 
-        a, b, c, d = st.columns(4)
-        a.metric("Entry مرجع", f"${entry:.2f}")
-        b.metric("Stop Loss", f"${sl:.2f}")
-        c.metric("TP1", f"${tp1:.2f}")
-        d.metric("TP2", f"${tp2:.2f}")
-
-
-# ==========================================
-# BACKTESTING
-# ==========================================
-
-def afg_backtest(df, initial_capital=500, risk_percent=1,
-                 cost_per_ounce=0):
-
-    if initial_capital <= 0:
-        raise ValueError("سرمایه اولیه باید بیشتر از صفر باشد.")
-    if not 0 < risk_percent <= 100:
-        raise ValueError("درصد ریسک باید بین صفر و 100 باشد.")
-    if cost_per_ounce < 0:
-        raise ValueError("هزینه معامله نمی‌تواند منفی باشد.")
-
-    df = afg_add_indicators(df.copy()).reset_index(drop=True)
-
-    score = pd.Series(0, index=df.index)
-
-    score += (
-        (df["EMA20"] > df["EMA50"]) &
-        (df["EMA50"] > df["EMA200"])
-    ).astype(int) * 2
-
-    score -= (
-        (df["EMA20"] < df["EMA50"]) &
-        (df["EMA50"] < df["EMA200"])
-    ).astype(int) * 2
-
-    score += (df["close"] > df["EMA20"]).astype(int)
-    score -= (df["close"] < df["EMA20"]).astype(int)
-
-    score += ((df["RSI"] > 50) & (df["RSI"] < 70)).astype(int)
-    score -= ((df["RSI"] > 30) & (df["RSI"] < 50)).astype(int)
-
-    score += (df["MACD"] > df["MACD_SIGNAL"]).astype(int)
-    score -= (df["MACD"] < df["MACD_SIGNAL"]).astype(int)
-
-    score += (
-        (df["ADX"] >= 20) & (df["PLUS_DI"] > df["MINUS_DI"])
-    ).astype(int)
-
-    score -= (
-        (df["ADX"] >= 20) & (df["MINUS_DI"] > df["PLUS_DI"])
-    ).astype(int)
-
-    df["SCORE"] = score
-
-    equity = float(initial_capital)
-    peak = equity
-    max_drawdown = 0.0
-    trades = []
-    i = 200
-
-    while i < len(df) - 1 and equity > 0:
-        current = df.iloc[i]
-
-        if current["SCORE"] >= 4:
-            direction = "BUY"
-        elif current["SCORE"] <= -4:
-            direction = "SELL"
-        else:
-            i += 1
-            continue
-
-        atr = float(current["ATR"])
-        entry_index = i + 1
-        entry = float(df.iloc[entry_index]["open"])
-
-        if not np.isfinite(atr) or atr <= 0 or not np.isfinite(entry) or entry <= 0:
-            i += 1
-            continue
-
-        stop_distance = 1.5 * atr
-        target_distance = 2.0 * stop_distance
-
-        # cost_per_ounce is the TOTAL round-trip cost per ounce.
-        risk_per_unit = stop_distance + cost_per_ounce
-        risk_amount = equity * risk_percent / 100
-        units = min(risk_amount / risk_per_unit, equity / entry)
-
-        if units <= 0:
-            i += 1
-            continue
-
-        if direction == "BUY":
-            stop = entry - stop_distance
-            target = entry + target_distance
-        else:
-            stop = entry + stop_distance
-            target = entry - target_distance
-
-        exit_price = None
-        exit_index = len(df) - 1
-        exit_reason = "END OF DATA"
-
-        for j in range(entry_index, len(df)):
-            candle = df.iloc[j]
-            op = float(candle["open"])
-            hi = float(candle["high"])
-            lo = float(candle["low"])
-            close = float(candle["close"])
-
-            if direction == "BUY":
-                hit_stop = lo <= stop
-                hit_target = hi >= target
-
-                if hit_stop:
-                    exit_price = op if op < stop else stop
-                    exit_reason = "STOP LOSS"
-                    exit_index = j
-                    break
-                if hit_target:
-                    exit_price = target
-                    exit_reason = "TAKE PROFIT"
-                    exit_index = j
-                    break
-
-                worst_pnl = (lo - entry) * units
-                close_pnl = (close - entry) * units
-
-            else:
-                hit_stop = hi >= stop
-                hit_target = lo <= target
-
-                if hit_stop:
-                    exit_price = op if op > stop else stop
-                    exit_reason = "STOP LOSS"
-                    exit_index = j
-                    break
-                if hit_target:
-                    exit_price = target
-                    exit_reason = "TAKE PROFIT"
-                    exit_index = j
-                    break
-
-                worst_pnl = (entry - hi) * units
-                close_pnl = (entry - close) * units
-
-            worst_equity = equity + worst_pnl - cost_per_ounce * units
-            close_equity = equity + close_pnl - cost_per_ounce * units
-            peak = max(peak, close_equity)
-
-            if peak > 0:
-                max_drawdown = max(
-                    max_drawdown,
-                    (peak - worst_equity) / peak * 100
-                )
-
-        if exit_price is None:
-            exit_price = float(df.iloc[-1]["close"])
-
-        if direction == "BUY":
-            gross_pnl = (exit_price - entry) * units
-        else:
-            gross_pnl = (entry - exit_price) * units
-
-        trading_cost = cost_per_ounce * units
-        net_pnl = gross_pnl - trading_cost
-        equity += net_pnl
-        peak = max(peak, equity)
-
-        if peak > 0:
-            max_drawdown = max(
-                max_drawdown,
-                (peak - equity) / peak * 100
-            )
-
-        trades.append({
-            "Direction": direction,
-            "Entry Time": df.iloc[entry_index]["datetime"],
-            "Exit Time": df.iloc[exit_index]["datetime"],
-            "Entry": round(entry, 2),
-            "Exit": round(exit_price, 2),
-            "Units": round(units, 4),
-            "Gross PnL ($)": round(gross_pnl, 4),
-            "Cost ($)": round(trading_cost, 4),
-            "Net PnL ($)": round(net_pnl, 4),
-            "Result": "WIN" if net_pnl > 0 else "LOSS",
-            "Exit Reason": exit_reason,
-            "Equity ($)": round(equity, 2)
-        })
-
-        i = exit_index + 1
-
-    trades_df = pd.DataFrame(trades)
-
-    if trades_df.empty:
-        return trades_df, {
-            "final_equity": equity,
-            "net_profit": equity - initial_capital,
-            "win_rate": 0.0,
-            "max_drawdown": max_drawdown,
-            "total_trades": 0,
-            "profit_factor": None
-        }
-
-    wins = trades_df[trades_df["Net PnL ($)"] > 0]
-    losses = trades_df[trades_df["Net PnL ($)"] < 0]
-
-    gross_wins = wins["Net PnL ($)"].sum()
-    gross_losses = abs(losses["Net PnL ($)"].sum())
-
-    profit_factor = gross_wins / gross_losses if gross_losses > 0 else None
-
-    stats = {
-        "final_equity": equity,
-        "net_profit": equity - initial_capital,
-        "win_rate": len(wins) / len(trades_df) * 100,
-        "max_drawdown": max_drawdown,
-        "total_trades": len(trades_df),
-        "profit_factor": profit_factor
-    }
-
-    return trades_df, stats
-
-
-# ==========================================
-# STREAMLIT INTERFACE
-# ==========================================
-
-st.sidebar.title("AFG AI GOLD PRO")
-section = st.sidebar.radio(
-    "بخش مورد نظر",
-    [
-        "تحلیل یک تایم‌فریم",
-        "تأیید چندتایم‌فریمی",
-        "Backtesting"
-    ]
-)
-
-if section == "تحلیل یک تایم‌فریم":
-    tf_name = st.selectbox("انتخاب تایم‌فریم طلا", list(TIMEFRAMES.keys()))
-    if st.button("اجرای تحلیل طلا", type="primary"):
-        try:
-            with st.spinner("در حال دریافت و تحلیل اطلاعات طلا..."):
-                frame = fetch_gold_candles(TIMEFRAMES[tf_name], 250)
-                result = show_signal(frame, tf_name)
-        except Exception as exc:
-            st.error(f"خطا در تحلیل طلا: {exc}")
-
-elif section == "تأیید چندتایم‌فریمی":
-    st.info(
-        "برای سیگنال نهایی، 5m و 15m و 1h و 4h بررسی می‌شوند. "
-        "تأیید تایم‌فریم‌های 1h و 4h الزامی است."
-    )
-    if st.button("اجرای تأیید چهار تایم‌فریم", type="primary"):
-        try:
-            with st.spinner("در حال بررسی چهار تایم‌فریم..."):
-                multi_timeframe_analysis()
-        except Exception as exc:
-            st.error(f"خطا در تحلیل چندتایم‌فریمی: {exc}")
-
-else:
-    st.subheader("آزمایش استراتژی با سرمایه فرضی 500 دلار")
-    bt_name = st.selectbox(
-        "تایم‌فریم Backtesting",
-        ["5 دقیقه", "15 دقیقه", "1 ساعت", "4 ساعت"]
-    )
-    bt_cost = st.number_input(
-        "هزینه مجموع ورود و خروج برای هر اونس (دلار)",
-        min_value=0.0,
-        value=0.0,
-        step=0.05
+    st.dataframe(
+        components,
+        use_container_width=True,
+        hide_index=True
     )
 
-    st.info(
-        "سرمایه اولیه: 500 دلار | ریسک هدف هر معامله: 1% | "
-        "حد ضرر: 1.5 ATR | حد سود: 2R"
+    st.caption(
+        "در هر بخش، 50٪ یعنی خنثی؛ بالاتر از 50٪ تمایل صعودی "
+        "و پایین‌تر از 50٪ تمایل نزولی است."
     )
 
-    if st.button("اجرای Backtesting", type="primary"):
-        try:
-            with st.spinner("در حال دریافت داده تاریخی و اجرای آزمایش..."):
-                bt_df = fetch_gold_candles(TIMEFRAMES[bt_name], 500)
-                trades, stats = afg_backtest(
-                    bt_df,
-                    initial_capital=500,
-                    risk_percent=1,
-                    cost_per_ounce=bt_cost
-                )
+    st.divider()
 
-            st.success("Backtesting تکمیل شد.")
+    # Sessions
+    st.subheader("🌍 تحلیل سشن‌های بازار")
 
-            a, b, c = st.columns(3)
-            a.metric("سرمایه نهایی", f"${stats['final_equity']:.2f}")
-            b.metric("سود / زیان خالص", f"${stats['net_profit']:.2f}")
-            c.metric("درصد معاملات برنده", f"{stats['win_rate']:.1f}%")
+    s1, s2, s3 = st.columns(3)
 
-            d, e, f = st.columns(3)
-            d.metric("تعداد معاملات", stats["total_trades"])
-            e.metric("Max Drawdown", f"{stats['max_drawdown']:.2f}%")
-            pf = stats["profit_factor"]
-            f.metric("Profit Factor", f"{pf:.2f}" if pf is not None else "N/A")
+    s1.metric(
+        "سشن فعال",
+        sessions["label"]
+    )
 
-            if not trades.empty:
-                st.subheader("تاریخچه معاملات")
-                st.dataframe(trades, use_container_width=True)
+    s2.metric(
+        "زمان افغانستان",
+        sessions["kabul"].strftime("%H:%M")
+    )
 
-                st.subheader("منحنی سرمایه")
-                equity_curve = [500] + trades["Equity ($)"].tolist()
-                st.line_chart(pd.DataFrame({"Equity ($)": equity_curve}))
-            else:
-                st.warning("در داده‌های دریافت‌شده معامله‌ای مطابق قوانین پیدا نشد.")
+    s3.metric(
+        "امتیاز سشن",
+        f"{(session_score + 1) * 50:.1f}%"
+    )
 
-            st.caption(
-                "این آزمایش شبیه‌سازی است، نه نتیجه تضمینی. "
-                "هزینه واقعی بروکر، اسپرد، لغزش، کمیسیون، سوآپ، "
-                "اهرم و اندازه قرارداد ممکن است متفاوت باشد."
-            )
+    st.write(
+        "توکیو:",
+        sessions["tokyo"].strftime("%H:%M"),
+        "| لندن:",
+        sessions["london"].strftime("%H:%M"),
+        "| نیویورک:",
+        sessions["new_york"].strftime("%H:%M")
+    )
 
-        except Exception as exc:
-            st.error(f"خطا در Backtesting: {exc}")
+    st.caption(
+        "ساعات سشن‌ها بر اساس قراردادهای رایج بازار FX هستند، "
+        "نه ساعات رسمی یا تضمینی بروکر طلا. تغییر ساعت تابستانی "
+        "لندن و نیویورک به‌صورت خودکار لحاظ می‌شود."
+    )
 
+    for reason in session_reasons:
+        st.write("•", reason)
 
-# ==========================================
-# FOOTER
-# ==========================================
+    st.divider()
+
+    # Technical
+    st.subheader("📈 تحلیل تکنیکال")
+
+    t1, t2, t3, t4 = st.columns(4)
+
+    t1.metric("RSI", f"{latest['RSI']:.2f}")
+    t2.metric("ADX", f"{latest['ADX']:.2f}")
+    t3.metric("ATR", f"{latest['ATR']:.2f}")
+    t4.metric("MACD", f"{latest['MACD']:.3f}")
+
+    st.write(
+        f"EMA20: {latest['EMA20']:.2f} | "
+        f"EMA50: {latest['EMA50']:.2f} | "
+        f"EMA200: {latest['EMA200']:.2f}"
+    )
+
+    for reason in tech_reasons:
+        st.write("•", reason)
+
+    st.divider()
+
+    # Fundamental
+    st.subheader("🌐 تحلیل فاندامنتال و شاخص‌های جایگزین")
+
+    st.metric(
+        "امتیاز فاندامنتال",
+        f"{(fund_score + 1) * 50:.1f}%"
+    )
+
+    st.write(
+        f"EUR/USD: {eurusd['close'].iloc[-1]:.5f}"
+    )
+
+    st.write(
+        f"USD/JPY: {usdjpy['close'].iloc[-1]:.5f}"
+    )
+
+    for reason in fund_reasons:
+        st.write("•", reason)
+
+    st.divider()
+
+    # Multi timeframe
+    st.subheader("⏱️ تأیید چند تایم‌فریمی")
+
+    mtf_table = pd.DataFrame({
+        "تایم‌فریم": list(mtf_results.keys()),
+        "سیگنال": list(mtf_results.values())
+    })
+
+    st.dataframe(
+        mtf_table,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.write(
+        f"تعداد BUY: {buy_count} از 4 | "
+        f"تعداد SELL: {sell_count} از 4"
+    )
+
+    st.divider()
+
+    # Trade plan
+    st.subheader("🎯 مدیریت معامله")
+
+    if signal != "NO TRADE":
+
+        a, b, c = st.columns(3)
+
+        a.metric("قیمت ورود", f"${price:.2f}")
+        b.metric("حد ضرر (SL)", f"${stop_loss:.2f}")
+        c.metric("حد سود (TP)", f"${take_profit:.2f}")
+
+        st.write(
+            f"سرمایه فرضی: ${account_balance:.2f} | "
+            f"ریسک: {risk_percent:.1f}% | "
+            f"مقدار ریسک: ${risk_amount:.2f}"
+        )
+
+        st.write(
+            f"حجم تقریبی: {position_size:.4f} اونس"
+        )
+
+        st.caption(
+            "حجم بالا با فرض قرارداد 1 واحد = 1 اونس محاسبه شده است. "
+            "اهرم، مارجین، اندازه قرارداد و هزینه بروکر لحاظ نشده‌اند؛ "
+            "قبل از معامله واقعی با مشخصات بروکر تطبیق بده."
+        )
+
+    else:
+        st.info(
+            "در شرایط فعلی ورود پیشنهاد نمی‌شود. "
+            "منتظر هم‌جهتی بهتر بازار بمان."
+        )
+
+    st.divider()
+
+    # Chart
+    st.subheader("📉 نمودار قیمت طلا")
+
+    chart_data = gold.tail(100).set_index("datetime")
+
+    st.line_chart(
+        chart_data[["close", "EMA20", "EMA50", "EMA200"]],
+        use_container_width=True
+    )
+
+    # Recent data
+    with st.expander("مشاهده آخرین کندل‌ها"):
+        st.dataframe(
+            gold.tail(20).sort_values(
+                "datetime",
+                ascending=False
+            ),
+            use_container_width=True
+        )
+
+    st.caption(
+        f"آخرین زمان داده دریافتی (UTC): "
+        f"{latest['datetime'].strftime('%Y-%m-%d %H:%M')}"
+    )
+
+except requests.exceptions.Timeout:
+    st.error(
+        "زمان دریافت اطلاعات از Twelve Data تمام شد. "
+        "لطفاً دوباره تلاش کن."
+    )
+
+except requests.exceptions.RequestException as e:
+    st.error(f"خطای ارتباط با API: {e}")
+
+except Exception as e:
+    st.error(f"خطا در تحلیل سیستم: {e}")
 
 st.divider()
+
 st.caption(
-    "AFG AI GOLD PRO | Technical rule-based analysis. "
-    "این برنامه سفارش واقعی ثبت نمی‌کند و توصیه مالی نیست. "
-    "پیش از استفاده واقعی، داده و نتایج را مستقل بررسی کن."
+    "AFG AI GOLD PRO | Technical + Fundamental Proxy + Sessions | "
+    "ابزار کمکی تحلیل بازار، نه تضمین سود."
 )
