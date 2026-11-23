@@ -1228,4 +1228,353 @@ if st.button("🔍 تأیید نهایی چهار تایم‌فریم"):
 
     except Exception as e:
         st.error(f"خطا در تحلیل چندتایم‌فریمی: {e}")
+# ===== AFG AI GOLD PRO - BACKTESTING ENGINE =====
+
+st.divider()
+st.header("📈 AFG AI GOLD PRO - Backtesting")
+
+def afg_backtest(df, initial_capital=500, risk_percent=1,
+                 cost_per_ounce=0):
+
+    df = afg_add_indicators(df.copy()).reset_index(drop=True)
+
+    # Calculate the same technical score used by the signal engine
+    score = pd.Series(0, index=df.index)
+
+    score += (
+        (df["EMA20"] > df["EMA50"]) &
+        (df["EMA50"] > df["EMA200"])
+    ).astype(int) * 2
+
+    score -= (
+        (df["EMA20"] < df["EMA50"]) &
+        (df["EMA50"] < df["EMA200"])
+    ).astype(int) * 2
+
+    score += (df["close"] > df["EMA20"]).astype(int)
+    score -= (df["close"] < df["EMA20"]).astype(int)
+
+    score += (
+        (df["RSI"] > 50) & (df["RSI"] < 70)
+    ).astype(int)
+
+    score -= (
+        (df["RSI"] > 30) & (df["RSI"] < 50)
+    ).astype(int)
+
+    score += (df["MACD"] > df["MACD_SIGNAL"]).astype(int)
+    score -= (df["MACD"] < df["MACD_SIGNAL"]).astype(int)
+
+    score += (
+        (df["ADX"] >= 20) &
+        (df["PLUS_DI"] > df["MINUS_DI"])
+    ).astype(int)
+
+    score -= (
+        (df["ADX"] >= 20) &
+        (df["MINUS_DI"] > df["PLUS_DI"])
+    ).astype(int)
+
+    df["SCORE"] = score
+
+    equity = float(initial_capital)
+    peak = equity
+    max_drawdown = 0.0
+    trades = []
+    equity_points = [equity]
+
+    i = 200
+
+    while i < len(df) - 1 and equity > 0:
+
+        current = df.iloc[i]
+
+        if current["SCORE"] >= 4:
+            direction = "BUY"
+        elif current["SCORE"] <= -4:
+            direction = "SELL"
+        else:
+            i += 1
+            continue
+
+        atr = float(current["ATR"])
+
+        if not atr > 0:
+            i += 1
+            continue
+
+        # Enter at the next candle open, not the signal candle close.
+        entry_index = i + 1
+        entry = float(df.iloc[entry_index]["open"])
+
+        stop_distance = 1.5 * atr
+        target_distance = 2 * stop_distance
+
+        risk_amount = equity * risk_percent / 100
+
+        units = risk_amount / stop_distance
+
+        # Conservative 1x notional exposure limit.
+        units = min(units, equity / entry)
+
+        if direction == "BUY":
+            stop = entry - stop_distance
+            target = entry + target_distance
+        else:
+            stop = entry + stop_distance
+            target = entry - target_distance
+
+        exit_price = None
+        exit_index = entry_index
+        exit_reason = "END OF DATA"
+
+        # Check future candles for stop or target.
+        for j in range(entry_index, len(df)):
+
+            candle = df.iloc[j]
+
+            if direction == "BUY":
+                hit_stop = float(candle["low"]) <= stop
+                hit_target = float(candle["high"]) >= target
+            else:
+                hit_stop = float(candle["high"]) >= stop
+                hit_target = float(candle["low"]) <= target
+
+            # If both are touched in one candle, assume stop first.
+            if hit_stop:
+                exit_price = stop
+                exit_reason = "STOP LOSS"
+                exit_index = j
+                break
+
+            if hit_target:
+                exit_price = target
+                exit_reason = "TAKE PROFIT"
+                exit_index = j
+                break
+
+        if exit_price is None:
+            exit_index = len(df) - 1
+            exit_price = float(df.iloc[-1]["close"])
+
+        if direction == "BUY":
+            gross_pnl = (exit_price - entry) * units
+        else:
+            gross_pnl = (entry - exit_price) * units
+
+        trading_cost = cost_per_ounce * units
+        net_pnl = gross_pnl - trading_cost
+
+        equity += net_pnl
+        peak = max(peak, equity)
+
+        drawdown = (
+            (peak - equity) / peak * 100
+            if peak > 0 else 0
+        )
+
+        max_drawdown = max(max_drawdown, drawdown)
+
+        trades.append({
+            "Direction": direction,
+            "Entry Time": df.iloc[entry_index]["datetime"],
+            "Exit Time": df.iloc[exit_index]["datetime"],
+            "Entry": round(entry, 2),
+            "Exit": round(exit_price, 2),
+            "Units": round(units, 4),
+            "Net PnL ($)": round(net_pnl, 2),
+            "Result": "WIN" if net_pnl > 0 else "LOSS",
+            "Exit Reason": exit_reason,
+            "Equity ($)": round(equity, 2)
+        })
+
+        equity_points.append(equity)
+
+        # Do not open another trade before this one closes.
+        i = exit_index + 1
+
+    trades_df = pd.DataFrame(trades)
+
+    if trades_df.empty:
+        return trades_df, {
+            "final_equity": equity,
+            "net_profit": equity - initial_capital,
+            "win_rate": 0,
+            "max_drawdown": max_drawdown,
+            "total_trades": 0,
+            "profit_factor": None
+        }
+
+    wins = trades_df[trades_df["Net PnL ($)"] > 0]
+    losses = trades_df[trades_df["Net PnL ($)"] < 0]
+
+    gross_wins = wins["Net PnL ($)"].sum()
+    gross_losses = abs(losses["Net PnL ($)"].sum())
+
+    profit_factor = (
+        gross_wins / gross_losses
+        if gross_losses > 0 else None
+    )
+
+    stats = {
+        "final_equity": equity,
+        "net_profit": equity - initial_capital,
+        "win_rate": len(wins) / len(trades_df) * 100,
+        "max_drawdown": max_drawdown,
+        "total_trades": len(trades_df),
+        "profit_factor": profit_factor
+    }
+
+    return trades_df, stats
+
+
+# Backtesting controls
+st.subheader("تنظیمات آزمایش")
+
+bt_timeframe = st.selectbox(
+    "انتخاب تایم‌فریم Backtesting",
+    ["5 دقیقه", "15 دقیقه", "1 ساعت", "4 ساعت"],
+    key="afg_bt_tf"
+)
+
+bt_intervals = {
+    "5 دقیقه": "5min",
+    "15 دقیقه": "15min",
+    "1 ساعت": "1h",
+    "4 ساعت": "4h"
+}
+
+bt_cost = st.number_input(
+    "هزینه تخمینی هر اونس برای ورود و خروج (دالر)",
+    min_value=0.0,
+    value=0.0,
+    step=0.05
+)
+
+st.info(
+    "سرمایه اولیه: 500 دلار | "
+    "ریسک هر معامله: 1 درصد | "
+    "حد سود: 2 برابر فاصله حد ضرر"
+)
+
+if st.button("🚀 اجرای Backtesting با سرمایه 500 دلار"):
+
+    try:
+        api_key = st.secrets["TWELVE_DATA_API_KEY"]
+
+        response = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": "XAU/USD",
+                "interval": bt_intervals[bt_timeframe],
+                "outputsize": 500,
+                "timezone": "UTC",
+                "apikey": api_key
+            },
+            timeout=30
+        )
+
+        data = response.json()
+
+        if "values" not in data:
+            st.error(data.get("message", "داده تاریخی دریافت نشد."))
+
+        else:
+            bt_df = pd.DataFrame(data["values"])
+
+            for col in ["open", "high", "low", "close"]:
+                bt_df[col] = pd.to_numeric(
+                    bt_df[col], errors="coerce"
+                )
+
+            bt_df = bt_df.dropna(
+                subset=["open", "high", "low", "close"]
+            )
+
+            bt_df = bt_df.sort_values(
+                "datetime"
+            ).reset_index(drop=True)
+
+            # Exclude potentially unfinished latest candle.
+            if len(bt_df) > 1:
+                bt_df = bt_df.iloc[:-1].copy()
+
+            if len(bt_df) < 250:
+                st.warning(
+                    f"داده کافی نیست. تعداد کندل: {len(bt_df)}"
+                )
+
+            else:
+                trades, stats = afg_backtest(
+                    bt_df,
+                    initial_capital=500,
+                    risk_percent=1,
+                    cost_per_ounce=bt_cost
+                )
+
+                st.success("آزمایش Backtesting تکمیل شد.")
+
+                a, b, c = st.columns(3)
+
+                a.metric(
+                    "سرمایه نهایی",
+                    f"${stats['final_equity']:.2f}"
+                )
+
+                b.metric(
+                    "سود یا زیان خالص",
+                    f"${stats['net_profit']:.2f}"
+                )
+
+                c.metric(
+                    "Win Rate",
+                    f"{stats['win_rate']:.1f}%"
+                )
+
+                d, e, f = st.columns(3)
+
+                d.metric(
+                    "تعداد معاملات",
+                    stats["total_trades"]
+                )
+
+                e.metric(
+                    "Max Drawdown",
+                    f"{stats['max_drawdown']:.2f}%"
+                )
+
+                pf = stats["profit_factor"]
+
+                f.metric(
+                    "Profit Factor",
+                    f"{pf:.2f}" if pf is not None else "N/A"
+                )
+
+                if not trades.empty:
+                    st.subheader("تاریخچه معاملات آزمایشی")
+                    st.dataframe(
+                        trades,
+                        use_container_width=True
+                    )
+
+                    st.subheader("نمودار سرمایه")
+                    st.line_chart(
+                        [500] + trades["Equity ($)"].tolist()
+                    )
+
+                else:
+                    st.warning(
+                        "در این دوره هیچ معامله‌ای با قوانین فعلی ایجاد نشد."
+                    )
+
+                st.caption(
+                    "نتایج تاریخی تضمین عملکرد آینده نیستند. "
+                    "هزینه واقعی، اسپرد، لغزش قیمت، "
+                    "محدودیت داده و شرایط اجرای بروکر می‌توانند "
+                    "نتایج واقعی را تغییر دهند."
+                )
+
+    except Exception as e:
+        st.error(f"خطا در Backtesting: {e}")
+
 
