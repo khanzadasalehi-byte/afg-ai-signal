@@ -3,11 +3,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime, time
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 # =========================================================
-# AFG AI GOLD PRO - SESSIONS + FUNDAMENTAL + TECHNICAL
+# AFG AI GOLD PRO - QUALITY SIGNAL EDITION
 # =========================================================
 
 st.set_page_config(
@@ -17,231 +17,217 @@ st.set_page_config(
 )
 
 st.title("🇦🇫 AFG AI GOLD PRO")
-st.subheader("Gold Market Analysis | Technical + Fundamental + Sessions")
-
-st.caption(
-    "تحلیل قانون‌محور بازار طلا با درصد قدرت سیگنال؛ "
-    "این درصدها احتمال واقعی برد یا تضمین سود نیستند."
-)
-
-# ---------------- CONFIG ----------------
+st.subheader("Advanced Gold Analysis | Multi-Timeframe | Smart Signals")
 
 API_URL = "https://api.twelvedata.com/time_series"
-TIMEOUT = 20
 
-TIMEFRAMES = {
-    "5 دقیقه": "5min",
-    "15 دقیقه": "15min",
-    "1 ساعت": "1h",
-    "4 ساعت": "4h"
+INTERVALS = {
+    "5 Minutes": "5min",
+    "15 Minutes": "15min",
+    "1 Hour": "1h",
+    "4 Hours": "4h"
 }
 
-WEIGHTS = {
-    "technical": 0.40,
-    "fundamental": 0.35,
-    "session": 0.25
-}
+MIN_CONFIDENCE = 72
+MIN_SCORE = 0.28
+OUTPUT_SIZE = 500
 
-KABUL = ZoneInfo("Asia/Kabul")
-TOKYO = ZoneInfo("Asia/Tokyo")
-LONDON = ZoneInfo("Europe/London")
-NEW_YORK = ZoneInfo("America/New_York")
+# =========================================================
+# SIDEBAR
+# =========================================================
 
-# ---------------- API KEY ----------------
+st.sidebar.header("⚙️ Settings")
 
-try:
-    saved_key = st.secrets.get("TWELVE_DATA_API_KEY", "")
-except Exception:
-    saved_key = ""
-
-with st.sidebar:
-    st.header("تنظیمات سیستم")
-
-    api_key = st.text_input(
-        "Twelve Data API Key",
-        value=saved_key,
-        type="password"
-    )
-
-    selected_tf = st.selectbox(
-        "تایم‌فریم اصلی",
-        list(TIMEFRAMES.keys()),
-        index=1
-    )
-
-    risk_percent = st.slider(
-        "ریسک هر معامله (%)",
-        min_value=0.5,
-        max_value=3.0,
-        value=1.0,
-        step=0.5
-    )
-
-    account_balance = st.number_input(
-        "سرمایه فرضی ($)",
-        min_value=10.0,
-        value=500.0,
-        step=50.0
-    )
-
-    refresh = st.button("🔄 دریافت اطلاعات جدید", use_container_width=True)
+api_key = st.sidebar.text_input(
+    "Twelve Data API Key",
+    type="password",
+    help="همان کلید قبلی Twelve Data را وارد کن."
+)
 
 if not api_key:
-    st.warning(
-        "کلید Twelve Data پیدا نشد. آن را در قسمت تنظیمات وارد کن "
-        "یا در Streamlit Secrets با نام TWELVE_DATA_API_KEY ذخیره کن."
-    )
-    st.stop()
+    try:
+        api_key = st.secrets["TWELVE_DATA_API_KEY"]
+    except Exception:
+        api_key = ""
 
+symbol = st.sidebar.selectbox(
+    "Trading Symbol",
+    ["XAU/USD", "EUR/USD", "BTC/USD"]
+)
 
-# ---------------- DATA FETCH ----------------
+confidence_limit = st.sidebar.slider(
+    "Minimum Signal Confidence",
+    60, 95, MIN_CONFIDENCE
+)
+
+risk_percent = st.sidebar.slider(
+    "Risk Per Trade (%)",
+    0.5, 3.0, 1.0, 0.5
+)
+
+initial_balance = st.sidebar.number_input(
+    "Backtest Starting Balance ($)",
+    min_value=100.0,
+    value=500.0,
+    step=100.0
+)
+
+st.sidebar.caption(
+    "Confidence is a model score, not a guaranteed win probability."
+)
+
+# =========================================================
+# DATA
+# =========================================================
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_data(symbol, interval, key, outputsize=200):
-
+def get_data(symbol, interval, key, outputsize=500):
     params = {
         "symbol": symbol,
         "interval": interval,
         "outputsize": outputsize,
         "apikey": key,
-        "format": "JSON",
-        "timezone": "UTC"
+        "timezone": "UTC",
+        "order": "ASC"
     }
 
     response = requests.get(
         API_URL,
         params=params,
-        timeout=TIMEOUT
+        timeout=25
     )
 
     response.raise_for_status()
     result = response.json()
 
     if "values" not in result:
-        message = result.get(
-            "message",
-            result.get("code", "Unknown API error")
-        )
-        raise ValueError(f"{symbol}: {message}")
+        message = result.get("message", "No market data returned.")
+        raise ValueError(message)
 
     df = pd.DataFrame(result["values"])
 
-    if df.empty:
-        raise ValueError(f"No data returned for {symbol}")
+    required = ["datetime", "open", "high", "low", "close"]
+    if not all(c in df.columns for c in required):
+        raise ValueError("Invalid market data format.")
 
     df["datetime"] = pd.to_datetime(
-        df["datetime"],
-        utc=True,
-        errors="coerce"
+        df["datetime"], utc=True, errors="coerce"
     )
 
     for col in ["open", "high", "low", "close"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    if "volume" in df.columns:
-        df["volume"] = pd.to_numeric(
-            df["volume"],
-            errors="coerce"
+    df = df.dropna(subset=required)
+    df = df.sort_values("datetime")
+    df = df.drop_duplicates("datetime")
+    df = df.set_index("datetime")
+
+    if len(df) < 220:
+        raise ValueError(
+            f"Not enough candles: {len(df)}. Need at least 220."
         )
-    else:
-        df["volume"] = 0
 
-    df = df.dropna(
-        subset=["datetime", "open", "high", "low", "close"]
-    )
+    # Remove the newest candle because it may still be forming.
+    df = df.iloc[:-1].copy()
 
-    df = df.sort_values("datetime").reset_index(drop=True)
+    if len(df) < 200:
+        raise ValueError("Not enough completed candles.")
 
     return df
 
 
-# ---------------- INDICATORS ----------------
+# =========================================================
+# TECHNICAL INDICATORS
+# =========================================================
 
-def add_indicators(df):
-
+def calculate_indicators(df):
     df = df.copy()
 
-    df["EMA20"] = df["close"].ewm(
-        span=20, adjust=False
-    ).mean()
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
 
-    df["EMA50"] = df["close"].ewm(
-        span=50, adjust=False
-    ).mean()
+    df["ema20"] = close.ewm(span=20, adjust=False).mean()
+    df["ema50"] = close.ewm(span=50, adjust=False).mean()
+    df["ema200"] = close.ewm(span=200, adjust=False).mean()
 
-    df["EMA200"] = df["close"].ewm(
-        span=200, adjust=False
-    ).mean()
-
-    delta = df["close"].diff()
+    delta = close.diff()
 
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
     avg_gain = gain.ewm(
-        alpha=1 / 14, adjust=False
+        alpha=1/14, adjust=False, min_periods=14
     ).mean()
 
     avg_loss = loss.ewm(
-        alpha=1 / 14, adjust=False
+        alpha=1/14, adjust=False, min_periods=14
     ).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["rsi"] = 100 - (100 / (1 + rs))
+    df["rsi"] = df["rsi"].fillna(50)
 
-    df["RSI"] = 100 - (100 / (1 + rs))
-    df["RSI"] = df["RSI"].fillna(50)
+    fast = close.ewm(span=12, adjust=False).mean()
+    slow = close.ewm(span=26, adjust=False).mean()
 
-    ema12 = df["close"].ewm(
-        span=12, adjust=False
-    ).mean()
-
-    ema26 = df["close"].ewm(
-        span=26, adjust=False
-    ).mean()
-
-    df["MACD"] = ema12 - ema26
-    df["MACD_SIGNAL"] = df["MACD"].ewm(
+    df["macd"] = fast - slow
+    df["macd_signal"] = df["macd"].ewm(
         span=9, adjust=False
     ).mean()
 
-    df["MACD_HIST"] = (
-        df["MACD"] - df["MACD_SIGNAL"]
-    )
+    df["macd_hist"] = df["macd"] - df["macd_signal"]
 
-    previous_close = df["close"].shift(1)
+    previous_close = close.shift(1)
 
-    tr = pd.concat(
-        [
-            df["high"] - df["low"],
-            (df["high"] - previous_close).abs(),
-            (df["low"] - previous_close).abs()
-        ],
-        axis=1
-    ).max(axis=1)
+    tr = pd.concat([
+        high - low,
+        (high - previous_close).abs(),
+        (low - previous_close).abs()
+    ], axis=1).max(axis=1)
 
-    df["ATR"] = tr.ewm(
-        alpha=1 / 14, adjust=False
+    df["atr"] = tr.ewm(
+        alpha=1/14, adjust=False
     ).mean()
 
-    plus_dm = df["high"].diff()
-    minus_dm = -df["low"].diff()
+    df["atr_pct"] = (
+        df["atr"] / close.replace(0, np.nan)
+    ) * 100
 
-    plus_dm = plus_dm.where(
-        (plus_dm > minus_dm) & (plus_dm > 0), 0
+    df["bb_mid"] = close.rolling(20).mean()
+    bb_std = close.rolling(20).std()
+
+    df["bb_upper"] = df["bb_mid"] + 2 * bb_std
+    df["bb_lower"] = df["bb_mid"] - 2 * bb_std
+
+    # ADX calculation
+    up_move = high.diff()
+    down_move = -low.diff()
+
+    plus_dm = pd.Series(
+        np.where(
+            (up_move > down_move) & (up_move > 0),
+            up_move, 0
+        ),
+        index=df.index
     )
 
-    minus_dm = minus_dm.where(
-        (minus_dm > plus_dm) & (minus_dm > 0), 0
+    minus_dm = pd.Series(
+        np.where(
+            (down_move > up_move) & (down_move > 0),
+            down_move, 0
+        ),
+        index=df.index
     )
 
-    atr_safe = df["ATR"].replace(0, np.nan)
+    atr_safe = df["atr"].replace(0, np.nan)
 
     plus_di = 100 * plus_dm.ewm(
-        alpha=1 / 14, adjust=False
+        alpha=1/14, adjust=False
     ).mean() / atr_safe
 
     minus_di = 100 * minus_dm.ewm(
-        alpha=1 / 14, adjust=False
+        alpha=1/14, adjust=False
     ).mean() / atr_safe
 
     dx = (
@@ -249,680 +235,683 @@ def add_indicators(df):
         / (plus_di + minus_di).replace(0, np.nan)
     )
 
-    df["PLUS_DI"] = plus_di.fillna(0)
-    df["MINUS_DI"] = minus_di.fillna(0)
-
-    df["ADX"] = dx.ewm(
-        alpha=1 / 14, adjust=False
+    df["plus_di"] = plus_di.fillna(0)
+    df["minus_di"] = minus_di.fillna(0)
+    df["adx"] = dx.ewm(
+        alpha=1/14, adjust=False
     ).mean().fillna(0)
 
-    df["BB_MID"] = df["close"].rolling(20).mean()
-    bb_std = df["close"].rolling(20).std()
-
-    df["BB_UPPER"] = df["BB_MID"] + 2 * bb_std
-    df["BB_LOWER"] = df["BB_MID"] - 2 * bb_std
-
-    return df
+    return df.dropna()
 
 
-# ---------------- TECHNICAL SCORE ----------------
+# =========================================================
+# SESSION DETECTION
+# =========================================================
 
-def technical_analysis(df):
+def get_sessions(timestamp):
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
 
-    row = df.iloc[-1]
-    previous = df.iloc[-2]
-
-    score = 0.0
-    reasons = []
-
-    # EMA trend
-    if row["close"] > row["EMA20"] > row["EMA50"]:
-        score += 0.25
-        reasons.append("روند EMA صعودی")
-
-    elif row["close"] < row["EMA20"] < row["EMA50"]:
-        score -= 0.25
-        reasons.append("روند EMA نزولی")
-
-    # Long-term trend
-    if row["close"] > row["EMA200"]:
-        score += 0.15
-        reasons.append("قیمت بالاتر از EMA200")
-
-    elif row["close"] < row["EMA200"]:
-        score -= 0.15
-        reasons.append("قیمت پایین‌تر از EMA200")
-
-    # RSI
-    if 50 < row["RSI"] < 70:
-        score += 0.15
-        reasons.append("RSI مثبت")
-
-    elif 30 < row["RSI"] < 50:
-        score -= 0.15
-        reasons.append("RSI منفی")
-
-    elif row["RSI"] >= 70:
-        score -= 0.05
-        reasons.append("RSI در محدوده اشباع خرید")
-
-    elif row["RSI"] <= 30:
-        score += 0.05
-        reasons.append("RSI در محدوده اشباع فروش")
-
-    # MACD
-    if row["MACD_HIST"] > 0:
-        score += 0.20
-        reasons.append("MACD صعودی")
-
-    elif row["MACD_HIST"] < 0:
-        score -= 0.20
-        reasons.append("MACD نزولی")
-
-    # ADX / Direction
-    if row["ADX"] >= 20:
-        if row["PLUS_DI"] > row["MINUS_DI"]:
-            score += 0.15
-            reasons.append("قدرت روند خریداران")
-
-        elif row["MINUS_DI"] > row["PLUS_DI"]:
-            score -= 0.15
-            reasons.append("قدرت روند فروشندگان")
-
-    # Bollinger
-    if row["close"] > row["BB_MID"]:
-        score += 0.10
-
-    elif row["close"] < row["BB_MID"]:
-        score -= 0.10
-
-    score = float(np.clip(score, -1, 1))
-
-    return score, reasons
-
-
-# ---------------- SESSION ANALYSIS ----------------
-
-def session_status():
-
-    now_utc = datetime.now(ZoneInfo("UTC"))
-
-    tokyo_time = now_utc.astimezone(TOKYO)
-    london_time = now_utc.astimezone(LONDON)
-    ny_time = now_utc.astimezone(NEW_YORK)
-    kabul_time = now_utc.astimezone(KABUL)
-
-    def is_between(t, start, end):
-        return start <= t < end
-
-    asia_active = is_between(
-        tokyo_time.time(),
-        time(9, 0),
-        time(18, 0)
+    london = timestamp.astimezone(
+        ZoneInfo("Europe/London")
     )
 
-    london_active = is_between(
-        london_time.time(),
-        time(8, 0),
-        time(17, 0)
+    new_york = timestamp.astimezone(
+        ZoneInfo("America/New_York")
     )
 
-    ny_active = is_between(
-        ny_time.time(),
-        time(8, 0),
-        time(17, 0)
+    tokyo = timestamp.astimezone(
+        ZoneInfo("Asia/Tokyo")
     )
 
-    active = []
+    sessions = []
 
-    if asia_active:
-        active.append("Asia")
+    if 8 <= london.hour < 17:
+        sessions.append("London")
 
-    if london_active:
-        active.append("London")
+    if 8 <= new_york.hour < 17:
+        sessions.append("New York")
 
-    if ny_active:
-        active.append("New York")
+    if 9 <= tokyo.hour < 18:
+        sessions.append("Asia")
 
-    if london_active and ny_active:
-        label = "London + New York Overlap"
-    elif active:
-        label = " + ".join(active)
+    return sessions if sessions else ["Quiet Market"]
+
+
+def session_score(timestamp):
+    sessions = get_sessions(timestamp)
+
+    if "London" in sessions and "New York" in sessions:
+        return 1.0, "London + New York"
+
+    if "London" in sessions:
+        return 0.65, "London"
+
+    if "New York" in sessions:
+        return 0.65, "New York"
+
+    if "Asia" in sessions:
+        return 0.25, "Asia"
+
+    return 0.0, "Quiet Market"
+
+
+# =========================================================
+# SIGNAL MODEL
+# =========================================================
+
+def clamp(value, low=-1, high=1):
+    return max(low, min(high, float(value)))
+
+
+def calculate_signal(df):
+    last = df.iloc[-1]
+
+    close = float(last["close"])
+    ema20 = float(last["ema20"])
+    ema50 = float(last["ema50"])
+    ema200 = float(last["ema200"])
+    rsi = float(last["rsi"])
+    macd_hist = float(last["macd_hist"])
+    atr = float(last["atr"])
+    adx = float(last["adx"])
+    plus_di = float(last["plus_di"])
+    minus_di = float(last["minus_di"])
+
+    # 1. Trend
+    trend = 0
+
+    if close > ema20 > ema50 > ema200:
+        trend = 1
+    elif close < ema20 < ema50 < ema200:
+        trend = -1
     else:
-        label = "No Major Session"
-
-    return {
-        "active": active,
-        "label": label,
-        "kabul": kabul_time,
-        "tokyo": tokyo_time,
-        "london": london_time,
-        "new_york": ny_time
-    }
-
-
-def session_analysis(df, sessions):
-
-    if not sessions["active"]:
-        return 0.0, [
-            "در حال حاضر سشن اصلی فعال نیست"
-        ]
-
-    recent = df.tail(20)
-
-    if len(recent) < 5:
-        return 0.0, ["داده کافی برای تحلیل سشن موجود نیست"]
-
-    close = float(recent["close"].iloc[-1])
-    old_close = float(recent["close"].iloc[-5])
-
-    momentum = (close - old_close) / old_close
-
-    recent_high = float(recent["high"].iloc[:-1].max())
-    recent_low = float(recent["low"].iloc[:-1].min())
-
-    score = 0.0
-    reasons = []
-
-    if close > recent_high:
-        score += 0.55
-        reasons.append("شکست سقف اخیر")
-
-    elif close < recent_low:
-        score -= 0.55
-        reasons.append("شکست کف اخیر")
-
-    if momentum > 0:
-        score += 0.30
-        reasons.append("مومنتوم مثبت در سشن")
-
-    elif momentum < 0:
-        score -= 0.30
-        reasons.append("مومنتوم منفی در سشن")
-
-    if "London" in sessions["active"]:
-        score *= 1.05
-        reasons.append("فعال بودن سشن لندن")
-
-    if "New York" in sessions["active"]:
-        score *= 1.10
-        reasons.append("فعال بودن سشن نیویورک")
-
-    if "Asia" in sessions["active"]:
-        reasons.append("فعال بودن سشن آسیا")
-
-    score = float(np.clip(score, -1, 1))
-
-    return score, reasons
-
-
-# ---------------- FUNDAMENTAL PROXY ----------------
-
-def fundamental_analysis(gold_df, eurusd_df, usdjpy_df):
-
-    reasons = []
-
-    # EUR/USD falling can indicate USD strength.
-    eur_change = (
-        eurusd_df["close"].iloc[-1]
-        / eurusd_df["close"].iloc[-5] - 1
-    )
-
-    # USD/JPY rising can indicate USD strength.
-    jpy_change = (
-        usdjpy_df["close"].iloc[-1]
-        / usdjpy_df["close"].iloc[-5] - 1
-    )
-
-    usd_strength = (
-        (-float(eur_change) + float(jpy_change)) / 2
-    )
-
-    # Rising USD is generally a headwind for gold.
-    usd_score = -np.tanh(usd_strength * 300)
-
-    # Gold's recent momentum is used as a secondary market proxy.
-    gold_change = (
-        gold_df["close"].iloc[-1]
-        / gold_df["close"].iloc[-5] - 1
-    )
-
-    gold_momentum_score = np.tanh(
-        float(gold_change) * 300
-    )
-
-    score = (
-        0.70 * usd_score
-        + 0.30 * gold_momentum_score
-    )
-
-    if usd_strength > 0:
-        reasons.append(
-            "قدرت نسبی دلار افزایش یافته؛ فشار احتمالی بر طلا"
+        trend = clamp(
+            ((close - ema50) / max(atr, 1e-9)) / 3
         )
-    elif usd_strength < 0:
-        reasons.append(
-            "قدرت نسبی دلار کاهش یافته؛ حمایت احتمالی از طلا"
-        )
-    else:
-        reasons.append("تغییر قابل‌توجهی در شاخص جایگزین دلار دیده نشد")
 
-    if gold_change > 0:
-        reasons.append("مومنتوم کوتاه‌مدت طلا مثبت است")
-    else:
-        reasons.append("مومنتوم کوتاه‌مدت طلا منفی است")
+    # 2. RSI
+    rsi_score = clamp((rsi - 50) / 20)
 
-    reasons.append(
-        "این تحلیل جایگزین فاندامنتال است؛ "
-        "اخبار زنده و نرخ بهره مستقیماً دریافت نمی‌شوند."
+    # Avoid chasing extreme RSI
+    if rsi > 78:
+        rsi_score *= 0.5
+    elif rsi < 22:
+        rsi_score *= 0.5
+
+    # 3. MACD
+    macd_score = clamp(
+        (macd_hist / max(atr, 1e-9)) * 8
     )
 
-    return float(np.clip(score, -1, 1)), reasons
+    # 4. Directional movement
+    di_score = clamp(
+        (plus_di - minus_di) / 25
+    )
 
+    # 5. ADX trend quality
+    adx_quality = min(max(adx / 35, 0), 1)
 
-# ---------------- MULTI TIMEFRAME ----------------
+    # 6. Combined technical score
+    technical = (
+        0.38 * trend +
+        0.20 * rsi_score +
+        0.22 * macd_score +
+        0.20 * di_score
+    )
 
-def timeframe_direction(df):
+    technical = clamp(technical)
 
-    row = df.iloc[-1]
+    # Session component
+    sess_strength, session_name = session_score(
+        df.index[-1].to_pydatetime()
+    )
+
+    # Low volatility and very high volatility are both caution flags
+    volatility_ok = (
+        0.02 <= float(last["atr_pct"]) <= 2.5
+    )
+
+    # Directional agreement
+    components = [
+        (trend, 0.38),
+        (rsi_score, 0.20),
+        (macd_score, 0.22),
+        (di_score, 0.20)
+    ]
+
+    direction = 1 if technical > 0 else -1
+
+    agreement = sum(
+        weight for value, weight in components
+        if value * direction > 0.05
+    )
+
+    opposition = sum(
+        weight for value, weight in components
+        if value * direction < -0.05
+    )
+
+    # Confidence is a model score, NOT win probability.
+    magnitude = min(abs(technical), 1)
+
+    confidence = (
+        55 * agreement +
+        30 * magnitude +
+        15 * adx_quality
+    )
+
+    confidence -= opposition * 15
+
+    if not volatility_ok:
+        confidence -= 12
+
+    if sess_strength == 0:
+        confidence -= 5
+
+    confidence = int(round(max(0, min(95, confidence))))
+
+    # Final strict filter
+    signal = "NO TRADE"
 
     if (
-        row["close"] > row["EMA20"]
-        and row["EMA20"] > row["EMA50"]
-        and row["MACD_HIST"] > 0
+        technical >= MIN_SCORE
+        and confidence >= confidence_limit
+        and adx >= 16
+        and volatility_ok
     ):
-        return "BUY"
-
-    if (
-        row["close"] < row["EMA20"]
-        and row["EMA20"] < row["EMA50"]
-        and row["MACD_HIST"] < 0
-    ):
-        return "SELL"
-
-    return "NO TRADE"
-
-
-# ---------------- SIGNAL ENGINE ----------------
-
-def calculate_signal(technical, fundamental, session):
-
-    final_score = (
-        technical * WEIGHTS["technical"]
-        + fundamental * WEIGHTS["fundamental"]
-        + session * WEIGHTS["session"]
-    )
-
-    buy_percent = (final_score + 1) * 50
-    sell_percent = 100 - buy_percent
-
-    if buy_percent >= 65:
         signal = "BUY"
 
-    elif sell_percent >= 65:
+    elif (
+        technical <= -MIN_SCORE
+        and confidence >= confidence_limit
+        and adx >= 16
+        and volatility_ok
+    ):
         signal = "SELL"
 
-    else:
-        signal = "NO TRADE"
+    # ATR-based trade plan
+    stop_loss = None
+    take_profit = None
 
-    return (
-        signal,
-        round(buy_percent, 1),
-        round(sell_percent, 1),
-        round(abs(final_score) * 100, 1)
-    )
-
-
-# ---------------- MAIN APP ----------------
-
-if refresh:
-    st.cache_data.clear()
-
-try:
-
-    with st.spinner("در حال دریافت اطلاعات بازار طلا..."):
-
-        interval = TIMEFRAMES[selected_tf]
-
-        gold_raw = fetch_data(
-            "XAU/USD", interval, api_key, 250
-        )
-
-        gold = add_indicators(gold_raw)
-
-        # Additional timeframes
-        mtf_data = {}
-
-        for label, tf in TIMEFRAMES.items():
-            if label == selected_tf:
-                mtf_data[label] = gold
-            else:
-                raw = fetch_data(
-                    "XAU/USD", tf, api_key, 220
-                )
-                mtf_data[label] = add_indicators(raw)
-
-        # Fundamental proxy data
-        eurusd = fetch_data(
-            "EUR/USD", "15min", api_key, 100
-        )
-
-        usdjpy = fetch_data(
-            "USD/JPY", "15min", api_key, 100
-        )
-
-    # Scores
-    tech_score, tech_reasons = technical_analysis(gold)
-
-    sessions = session_status()
-
-    session_score, session_reasons = session_analysis(
-        gold, sessions
-    )
-
-    fund_score, fund_reasons = fundamental_analysis(
-        gold, eurusd, usdjpy
-    )
-
-    signal, buy_pct, sell_pct, strength = calculate_signal(
-        tech_score,
-        fund_score,
-        session_score
-    )
-
-    latest = gold.iloc[-1]
-
-    price = float(latest["close"])
-    atr = float(latest["ATR"])
-
-    if not np.isfinite(atr) or atr <= 0:
-        atr = price * 0.002
-
-    # SL / TP
     if signal == "BUY":
-        stop_loss = price - (1.5 * atr)
-        take_profit = price + (3.0 * atr)
+        stop_loss = close - 1.5 * atr
+        take_profit = close + 2.5 * atr
 
     elif signal == "SELL":
-        stop_loss = price + (1.5 * atr)
-        take_profit = price - (3.0 * atr)
+        stop_loss = close + 1.5 * atr
+        take_profit = close - 2.5 * atr
 
-    else:
-        stop_loss = None
-        take_profit = None
-
-    risk_amount = account_balance * risk_percent / 100
-
-    # Approximate position size:
-    # Assumes 1 unit = 1 ounce and ignores broker leverage/margin rules.
-    stop_distance = 1.5 * atr
-
-    position_size = (
-        risk_amount / stop_distance
-        if stop_distance > 0 else 0
-    )
-
-    # Multi-timeframe directions
-    mtf_results = {
-        label: timeframe_direction(data)
-        for label, data in mtf_data.items()
+    return {
+        "signal": signal,
+        "confidence": confidence,
+        "score": round(technical, 3),
+        "price": close,
+        "rsi": round(rsi, 2),
+        "adx": round(adx, 2),
+        "atr": round(atr, 4),
+        "session": session_name,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "trend": round(trend, 2),
+        "agreement": round(agreement * 100, 1)
     }
 
-    buy_count = list(mtf_results.values()).count("BUY")
-    sell_count = list(mtf_results.values()).count("SELL")
 
-    # ---------------- DASHBOARD ----------------
+# =========================================================
+# LOAD ALL TIMEFRAMES
+# =========================================================
 
-    st.divider()
+if not api_key:
+    st.warning(
+        "لطفاً کلید Twelve Data را در قسمت تنظیمات وارد کن."
+    )
+    st.stop()
 
-    col1, col2, col3, col4 = st.columns(4)
+all_data = {}
+all_signals = {}
+errors = []
 
-    col1.metric(
-        "قیمت فعلی طلا",
-        f"${price:,.2f}"
+with st.spinner("Downloading market data and analyzing..."):
+    for label, interval in INTERVALS.items():
+        try:
+            raw = get_data(
+                symbol, interval, api_key, OUTPUT_SIZE
+            )
+            analyzed = calculate_indicators(raw)
+
+            all_data[label] = analyzed
+            all_signals[label] = calculate_signal(analyzed)
+
+        except Exception as e:
+            errors.append(f"{label}: {str(e)}")
+
+if errors:
+    with st.expander("Data warnings"):
+        for error in errors:
+            st.error(error)
+
+if "15 Minutes" not in all_signals:
+    st.error(
+        "15-minute data is required for the main signal. "
+        "Check your API key, symbol and API limits."
+    )
+    st.stop()
+
+# =========================================================
+# MULTI TIMEFRAME CONFIRMATION
+# =========================================================
+
+main = all_signals["15 Minutes"]
+
+direction = (
+    1 if main["score"] > 0
+    else -1 if main["score"] < 0
+    else 0
+)
+
+available_higher = [
+    all_signals[x]
+    for x in ["1 Hour", "4 Hours"]
+    if x in all_signals
+]
+
+higher_votes = [
+    1 if item["score"] > 0 else -1
+    for item in available_higher
+    if abs(item["score"]) >= 0.10
+]
+
+higher_agreement = (
+    sum(1 for x in higher_votes if x == direction)
+    if direction != 0 else 0
+)
+
+higher_count = len(higher_votes)
+
+mtf_confirmed = (
+    higher_count == 0 or
+    higher_agreement >= 1
+)
+
+final_signal = main["signal"]
+final_confidence = main["confidence"]
+
+if final_signal in ["BUY", "SELL"] and not mtf_confirmed:
+    final_signal = "NO TRADE"
+    final_confidence = max(0, final_confidence - 10)
+
+# =========================================================
+# DASHBOARD
+# =========================================================
+
+st.divider()
+st.header("🎯 Main Trading Signal")
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.metric("Gold / Market Price", f"{main['price']:.3f}")
+
+with c2:
+    st.metric("Signal", final_signal)
+
+with c3:
+    st.metric(
+        "Signal Confidence",
+        f"{final_confidence}%"
     )
 
-    col2.metric(
-        "قدرت سیگنال",
-        f"{strength}%"
+if final_signal == "BUY":
+    st.success("BUY signal detected")
+
+elif final_signal == "SELL":
+    st.error("SELL signal detected")
+
+else:
+    st.warning(
+        "NO TRADE — Conditions are not strong enough."
     )
 
-    col3.metric(
-        "BUY",
-        f"{buy_pct}%"
+st.caption(
+    "Important: Confidence is a mathematical model score, "
+    "not a statistically verified probability of winning."
+)
+
+# =========================================================
+# TRADE PLAN
+# =========================================================
+
+st.subheader("📌 Trade Plan")
+
+p1, p2, p3 = st.columns(3)
+
+p1.metric(
+    "Entry Reference",
+    f"{main['price']:.3f}"
+)
+
+p2.metric(
+    "Stop Loss",
+    f"{main['stop_loss']:.3f}"
+    if main["stop_loss"] is not None else "Not available"
+)
+
+p3.metric(
+    "Take Profit",
+    f"{main['take_profit']:.3f}"
+    if main["take_profit"] is not None else "Not available"
+)
+
+st.info(
+    "Trade levels are estimates based on ATR. "
+    "Check spread, execution price and position size before trading."
+)
+
+# =========================================================
+# SESSION INFORMATION
+# =========================================================
+
+st.subheader("🌍 Trading Sessions")
+
+now = datetime.now(timezone.utc)
+
+session_cards = [
+    ("Asia", now.astimezone(ZoneInfo("Asia/Tokyo"))),
+    ("London", now.astimezone(ZoneInfo("Europe/London"))),
+    ("New York", now.astimezone(ZoneInfo("America/New_York")))
+]
+
+cols = st.columns(3)
+
+for col, (name, local_time) in zip(cols, session_cards):
+    hour = local_time.hour
+    active = (
+        9 <= hour < 18 if name == "Asia"
+        else 8 <= hour < 17
     )
 
-    col4.metric(
-        "SELL",
-        f"{sell_pct}%"
-    )
+    with col:
+        st.markdown(f"**{name} Session**")
+        st.write(local_time.strftime("%H:%M"))
+        if active:
+            st.success("Active")
+        else:
+            st.caption("Outside main session hours")
 
-    st.divider()
+# =========================================================
+# MULTI-TIMEFRAME TABLE
+# =========================================================
 
-    # Main signal
-    if signal == "BUY":
-        st.success(f"سیگنال نهایی: BUY | قدرت جهت: {strength}%")
+st.divider()
+st.header("📊 Multi-Timeframe Analysis")
 
-    elif signal == "SELL":
-        st.error(f"سیگنال نهایی: SELL | قدرت جهت: {strength}%")
+rows = []
+
+for label, result in all_signals.items():
+    rows.append({
+        "Timeframe": label,
+        "Signal": result["signal"],
+        "Confidence": f"{result['confidence']}%",
+        "Score": result["score"],
+        "RSI": result["rsi"],
+        "ADX": result["adx"],
+        "Session": result["session"]
+    })
+
+st.dataframe(
+    pd.DataFrame(rows),
+    use_container_width=True,
+    hide_index=True
+)
+
+# =========================================================
+# BACKTEST
+# =========================================================
+
+st.divider()
+st.header("🧪 Historical Backtest")
+
+st.caption(
+    "Backtest uses completed 15-minute candles. "
+    "Entry is at the next candle open. "
+    "It is a simplified simulation, not a guarantee of live results."
+)
+
+if st.button("Run Backtest", type="primary"):
+    bt = all_data["15 Minutes"].copy()
+
+    balance = float(initial_balance)
+    equity = [balance]
+    trades = []
+
+    position = None
+    max_balance = balance
+    max_drawdown = 0.0
+
+    # Use only historical values available at each candle close.
+    for i in range(220, len(bt) - 1):
+        hist = bt.iloc[:i + 1]
+        result = calculate_signal(hist)
+
+        current = bt.iloc[i]
+        next_bar = bt.iloc[i + 1]
+
+        # Manage an existing trade first.
+        if position is not None:
+            exit_price = None
+            exit_reason = None
+
+            if position["side"] == "BUY":
+                hit_sl = current["low"] <= position["sl"]
+                hit_tp = current["high"] >= position["tp"]
+
+                if hit_sl:
+                    exit_price = position["sl"]
+                    exit_reason = "Stop Loss"
+                elif hit_tp:
+                    exit_price = position["tp"]
+                    exit_reason = "Take Profit"
+
+            else:
+                hit_sl = current["high"] >= position["sl"]
+                hit_tp = current["low"] <= position["tp"]
+
+                if hit_sl:
+                    exit_price = position["sl"]
+                    exit_reason = "Stop Loss"
+                elif hit_tp:
+                    exit_price = position["tp"]
+                    exit_reason = "Take Profit"
+
+            if exit_price is not None:
+                gross = (
+                    exit_price - position["entry"]
+                    if position["side"] == "BUY"
+                    else position["entry"] - exit_price
+                )
+
+                pnl = gross * position["quantity"]
+                balance += pnl
+
+                trades.append({
+                    "Entry Time": position["time"],
+                    "Exit Time": bt.index[i],
+                    "Side": position["side"],
+                    "Confidence": position["confidence"],
+                    "Entry": position["entry"],
+                    "Exit": exit_price,
+                    "PnL": pnl,
+                    "Reason": exit_reason
+                })
+
+                position = None
+
+                max_balance = max(max_balance, balance)
+                dd = (
+                    (max_balance - balance) / max_balance * 100
+                    if max_balance > 0 else 0
+                )
+                max_drawdown = max(max_drawdown, dd)
+
+                equity.append(balance)
+                continue
+
+        if position is not None:
+            continue
+
+        if result["signal"] not in ["BUY", "SELL"]:
+            continue
+
+        if result["confidence"] < confidence_limit:
+            continue
+
+        entry = float(next_bar["open"])
+        atr = float(result["atr"])
+
+        if not np.isfinite(entry) or not np.isfinite(atr) or atr <= 0:
+            continue
+
+        risk_amount = balance * (risk_percent / 100)
+        stop_distance = 1.5 * atr
+
+        quantity = risk_amount / stop_distance
+
+        # Avoid using more than available notional balance.
+        quantity = min(quantity, balance / entry)
+
+        if quantity <= 0:
+            continue
+
+        if result["signal"] == "BUY":
+            sl = entry - stop_distance
+            tp = entry + 2.5 * atr
+        else:
+            sl = entry + stop_distance
+            tp = entry - 2.5 * atr
+
+        position = {
+            "side": result["signal"],
+            "entry": entry,
+            "sl": sl,
+            "tp": tp,
+            "quantity": quantity,
+            "time": bt.index[i + 1],
+            "confidence": result["confidence"]
+        }
+
+    # Close any remaining position at final available close.
+    if position is not None:
+        last_close = float(bt.iloc[-1]["close"])
+
+        gross = (
+            last_close - position["entry"]
+            if position["side"] == "BUY"
+            else position["entry"] - last_close
+        )
+
+        pnl = gross * position["quantity"]
+        balance += pnl
+
+        trades.append({
+            "Entry Time": position["time"],
+            "Exit Time": bt.index[-1],
+            "Side": position["side"],
+            "Confidence": position["confidence"],
+            "Entry": position["entry"],
+            "Exit": last_close,
+            "PnL": pnl,
+            "Reason": "End of Data"
+        })
+
+        equity.append(balance)
+
+    # Results
+    if trades:
+        trade_df = pd.DataFrame(trades)
+
+        wins = int((trade_df["PnL"] > 0).sum())
+        losses = int((trade_df["PnL"] <= 0).sum())
+        total = len(trade_df)
+
+        win_rate = wins / total * 100
+        net_profit = balance - initial_balance
+
+        gross_profit = trade_df.loc[
+            trade_df["PnL"] > 0, "PnL"
+        ].sum()
+
+        gross_loss = abs(
+            trade_df.loc[trade_df["PnL"] < 0, "PnL"].sum()
+        )
+
+        profit_factor = (
+            gross_profit / gross_loss
+            if gross_loss > 0 else np.inf
+        )
+
+        r1, r2, r3, r4 = st.columns(4)
+
+        r1.metric("Total Trades", total)
+        r2.metric("Win Rate", f"{win_rate:.1f}%")
+        r3.metric("Net P/L", f"${net_profit:.2f}")
+        r4.metric(
+            "Profit Factor",
+            f"{profit_factor:.2f}"
+            if np.isfinite(profit_factor) else "∞"
+        )
+
+        st.metric(
+            "Final Balance",
+            f"${balance:.2f}"
+        )
+
+        st.metric(
+            "Maximum Closed-Trade Drawdown",
+            f"{max_drawdown:.2f}%"
+        )
+
+        equity_df = pd.DataFrame({
+            "Equity": equity
+        })
+
+        st.subheader("📈 Equity Curve")
+        st.line_chart(equity_df)
+
+        st.subheader("Trade History")
+        st.dataframe(
+            trade_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        csv = trade_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "Download Trade History CSV",
+            data=csv,
+            file_name="AFG_AI_GOLD_PRO_backtest.csv",
+            mime="text/csv"
+        )
 
     else:
         st.warning(
-            f"سیگنال نهایی: NO TRADE | قدرت جهت: {strength}%"
+            "No trades passed the confidence and risk filters. "
+            "Try a longer history or review the confidence threshold."
         )
 
-    # Weighted components
-    st.subheader("📊 ترکیب سه بخش تحلیل")
-
-    components = pd.DataFrame({
-        "بخش تحلیل": [
-            "تکنیکال",
-            "فاندامنتال",
-            "سشن بازار"
-        ],
-        "امتیاز جهت‌دار (%)": [
-            round((tech_score + 1) * 50, 1),
-            round((fund_score + 1) * 50, 1),
-            round((session_score + 1) * 50, 1)
-        ],
-        "وزن": [
-            "40%",
-            "35%",
-            "25%"
-        ]
-    })
-
-    st.dataframe(
-        components,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.caption(
-        "در هر بخش، 50٪ یعنی خنثی؛ بالاتر از 50٪ تمایل صعودی "
-        "و پایین‌تر از 50٪ تمایل نزولی است."
-    )
-
-    st.divider()
-
-    # Sessions
-    st.subheader("🌍 تحلیل سشن‌های بازار")
-
-    s1, s2, s3 = st.columns(3)
-
-    s1.metric(
-        "سشن فعال",
-        sessions["label"]
-    )
-
-    s2.metric(
-        "زمان افغانستان",
-        sessions["kabul"].strftime("%H:%M")
-    )
-
-    s3.metric(
-        "امتیاز سشن",
-        f"{(session_score + 1) * 50:.1f}%"
-    )
-
-    st.write(
-        "توکیو:",
-        sessions["tokyo"].strftime("%H:%M"),
-        "| لندن:",
-        sessions["london"].strftime("%H:%M"),
-        "| نیویورک:",
-        sessions["new_york"].strftime("%H:%M")
-    )
-
-    st.caption(
-        "ساعات سشن‌ها بر اساس قراردادهای رایج بازار FX هستند، "
-        "نه ساعات رسمی یا تضمینی بروکر طلا. تغییر ساعت تابستانی "
-        "لندن و نیویورک به‌صورت خودکار لحاظ می‌شود."
-    )
-
-    for reason in session_reasons:
-        st.write("•", reason)
-
-    st.divider()
-
-    # Technical
-    st.subheader("📈 تحلیل تکنیکال")
-
-    t1, t2, t3, t4 = st.columns(4)
-
-    t1.metric("RSI", f"{latest['RSI']:.2f}")
-    t2.metric("ADX", f"{latest['ADX']:.2f}")
-    t3.metric("ATR", f"{latest['ATR']:.2f}")
-    t4.metric("MACD", f"{latest['MACD']:.3f}")
-
-    st.write(
-        f"EMA20: {latest['EMA20']:.2f} | "
-        f"EMA50: {latest['EMA50']:.2f} | "
-        f"EMA200: {latest['EMA200']:.2f}"
-    )
-
-    for reason in tech_reasons:
-        st.write("•", reason)
-
-    st.divider()
-
-    # Fundamental
-    st.subheader("🌐 تحلیل فاندامنتال و شاخص‌های جایگزین")
-
-    st.metric(
-        "امتیاز فاندامنتال",
-        f"{(fund_score + 1) * 50:.1f}%"
-    )
-
-    st.write(
-        f"EUR/USD: {eurusd['close'].iloc[-1]:.5f}"
-    )
-
-    st.write(
-        f"USD/JPY: {usdjpy['close'].iloc[-1]:.5f}"
-    )
-
-    for reason in fund_reasons:
-        st.write("•", reason)
-
-    st.divider()
-
-    # Multi timeframe
-    st.subheader("⏱️ تأیید چند تایم‌فریمی")
-
-    mtf_table = pd.DataFrame({
-        "تایم‌فریم": list(mtf_results.keys()),
-        "سیگنال": list(mtf_results.values())
-    })
-
-    st.dataframe(
-        mtf_table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.write(
-        f"تعداد BUY: {buy_count} از 4 | "
-        f"تعداد SELL: {sell_count} از 4"
-    )
-
-    st.divider()
-
-    # Trade plan
-    st.subheader("🎯 مدیریت معامله")
-
-    if signal != "NO TRADE":
-
-        a, b, c = st.columns(3)
-
-        a.metric("قیمت ورود", f"${price:.2f}")
-        b.metric("حد ضرر (SL)", f"${stop_loss:.2f}")
-        c.metric("حد سود (TP)", f"${take_profit:.2f}")
-
-        st.write(
-            f"سرمایه فرضی: ${account_balance:.2f} | "
-            f"ریسک: {risk_percent:.1f}% | "
-            f"مقدار ریسک: ${risk_amount:.2f}"
-        )
-
-        st.write(
-            f"حجم تقریبی: {position_size:.4f} اونس"
-        )
-
-        st.caption(
-            "حجم بالا با فرض قرارداد 1 واحد = 1 اونس محاسبه شده است. "
-            "اهرم، مارجین، اندازه قرارداد و هزینه بروکر لحاظ نشده‌اند؛ "
-            "قبل از معامله واقعی با مشخصات بروکر تطبیق بده."
-        )
-
-    else:
-        st.info(
-            "در شرایط فعلی ورود پیشنهاد نمی‌شود. "
-            "منتظر هم‌جهتی بهتر بازار بمان."
-        )
-
-    st.divider()
-
-    # Chart
-    st.subheader("📉 نمودار قیمت طلا")
-
-    chart_data = gold.tail(100).set_index("datetime")
-
-    st.line_chart(
-        chart_data[["close", "EMA20", "EMA50", "EMA200"]],
-        use_container_width=True
-    )
-
-    # Recent data
-    with st.expander("مشاهده آخرین کندل‌ها"):
-        st.dataframe(
-            gold.tail(20).sort_values(
-                "datetime",
-                ascending=False
-            ),
-            use_container_width=True
-        )
-
-    st.caption(
-        f"آخرین زمان داده دریافتی (UTC): "
-        f"{latest['datetime'].strftime('%Y-%m-%d %H:%M')}"
-    )
-
-except requests.exceptions.Timeout:
-    st.error(
-        "زمان دریافت اطلاعات از Twelve Data تمام شد. "
-        "لطفاً دوباره تلاش کن."
-    )
-
-except requests.exceptions.RequestException as e:
-    st.error(f"خطای ارتباط با API: {e}")
-
-except Exception as e:
-    st.error(f"خطا در تحلیل سیستم: {e}")
+# =========================================================
+# FOOTER
+# =========================================================
 
 st.divider()
 
 st.caption(
-    "AFG AI GOLD PRO | Technical + Fundamental Proxy + Sessions | "
-    "ابزار کمکی تحلیل بازار، نه تضمین سود."
+    "AFG AI GOLD PRO | Technical model | Multi-timeframe "
+    "| Session analysis | ATR risk | Historical backtest"
+)
+
+st.caption(
+    "For research and educational purposes. "
+    "Not financial advice. Always test on a demo account first."
 )
