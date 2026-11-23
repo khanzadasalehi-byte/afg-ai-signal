@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================================
@@ -39,7 +39,40 @@ h2 { color: #f4d58a !important; }
 h3 { color: #e7c77f !important; }
 [data-testid="stMetric"] { background: linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(214,173,85,.22); padding:15px 17px; border-radius:15px; box-shadow:0 8px 24px rgba(0,0,0,.16); }
 [data-testid="stMetricLabel"] { color:#aeb8c8 !important; font-size:.78rem !important; }
-[data-testid="stMetricValue"] { color:#fff !important; font-weight:800 !important; }
+[data-testid="stMetricValue"] {
+    color:#fff !important;
+    font-weight:800 !important;
+    font-size:clamp(1rem, 2.1vw, 1.75rem) !important;
+    line-height:1.25 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    word-break:normal !important;
+    overflow-wrap:anywhere !important;
+}
+[data-testid="stMetricValue"] > div {
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+}
+@media (max-width: 900px) {
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap:wrap !important;
+        gap:0.65rem !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        flex:1 1 180px !important;
+        min-width: min(180px, 100%) !important;
+    }
+}
+@media (max-width: 480px) {
+    [data-testid="stMetric"] {
+        padding:12px 13px !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size:1.15rem !important;
+    }
+}
 [data-testid="stMetricDelta"] { color:#d6ad55 !important; }
 .stButton>button { border:1px solid rgba(214,173,85,.55); border-radius:11px; background:linear-gradient(110deg,#b88b35,#e6c574); color:#11151d; font-weight:800; min-height:2.7rem; }
 .stButton>button:hover { border-color:#f4d58a; color:#080b12; box-shadow:0 0 18px rgba(214,173,85,.25); }
@@ -57,7 +90,7 @@ small, .stCaption { color:#9ba8ba !important; }
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("ENTRY  ·  STOP LOSS  ·  TAKE PROFIT  ·  HISTORICAL TESTING")
+st.caption("CLOSED-CANDLE ANALYSIS  ·  MULTI-TIMEFRAME CONFIRMATION  ·  RISK MANAGEMENT  ·  HISTORICAL TESTING")
 st.info(
     "Educational analysis only. Signals do not guarantee profits. The model score is a technical alignment score, "
     "not a statistically validated probability of winning. Verify live broker prices and risk before trading."
@@ -72,6 +105,12 @@ INTERVALS = {
     "15M": "15min",
     "1H": "1h",
     "4H": "4h",
+}
+INTERVAL_DELTAS = {
+    "5min": pd.Timedelta(minutes=5),
+    "15min": pd.Timedelta(minutes=15),
+    "1h": pd.Timedelta(hours=1),
+    "4h": pd.Timedelta(hours=4),
 }
 LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
@@ -136,8 +175,16 @@ def get_candles(interval: str, api_key: str) -> pd.DataFrame:
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
     df = df.dropna(subset=required).sort_values("datetime").reset_index(drop=True)
 
+    # Twelve Data timestamps candle openings. Keep only candles whose full
+    # interval has elapsed, with a small safety buffer for delayed updates.
+    interval_delta = INTERVAL_DELTAS[interval]
+    closed_before = pd.Timestamp.now(tz="UTC") - pd.Timedelta(seconds=2)
+    df = df[df["datetime"] + interval_delta <= closed_before].reset_index(drop=True)
+
     if len(df) < 210:
-        raise ValueError(f"Not enough candles: {len(df)}; at least 210 candles are required.")
+        raise ValueError(
+            f"Not enough fully closed candles: {len(df)}; at least 210 are required."
+        )
 
     return df
 
@@ -288,27 +335,38 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
             and float(r15["ema20"]) < float(r15["ema50"])
         )
 
-    # ADX measures trend strength, not direction.
+    # ADX measures trend strength, not direction. A trade must also have
+    # momentum confirmation on 5M and directional structure on 15M.
     adx_ok = float(r15["adx"]) >= adx_floor
+    five_min_buy_confirm = (
+        float(r5["close"]) > float(r5["ema20"])
+        and float(r5["macd_hist"]) > 0
+    )
+    five_min_sell_confirm = (
+        float(r5["close"]) < float(r5["ema20"])
+        and float(r5["macd_hist"]) < 0
+    )
     buy_valid = (
         trend_4h == "BULLISH"
         and trend_1h == "BULLISH"
-        and trend_15m != "BEARISH"
-        and float(r15["rsi"]) < 70
+        and trend_15m == "BULLISH"
+        and 50 < float(r15["rsi"]) < 68
         and adx_ok
         and buy_pullback
         and bullish_candle
+        and five_min_buy_confirm
         and buy_score >= confidence_floor
         and buy_score > sell_score
     )
     sell_valid = (
         trend_4h == "BEARISH"
         and trend_1h == "BEARISH"
-        and trend_15m != "BULLISH"
-        and float(r15["rsi"]) > 30
+        and trend_15m == "BEARISH"
+        and 32 < float(r15["rsi"]) < 50
         and adx_ok
         and sell_pullback
         and bearish_candle
+        and five_min_sell_confirm
         and sell_score >= confidence_floor
         and sell_score > buy_score
     )
@@ -339,7 +397,7 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
 
     return {
         "signal": signal,
-        "score": int(min(95, score)),
+        "score": int(min(100, score)),
         "buy_score": buy_score,
         "sell_score": sell_score,
         "entry": entry,
@@ -355,21 +413,25 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
         "sell_pullback": sell_pullback,
         "bullish_candle": bullish_candle,
         "bearish_candle": bearish_candle,
+        "five_min_buy_confirm": five_min_buy_confirm,
+        "five_min_sell_confirm": five_min_sell_confirm,
     }
 
 
 # -------------------------- MARKET SESSION --------------------------
 
 def market_session():
-    now_utc = datetime.now(timezone.utc)
-    hour = now_utc.hour
+    # Local exchange clocks automatically account for daylight-saving changes.
+    tokyo_hour = datetime.now(ZoneInfo("Asia/Tokyo")).hour
+    london_hour = datetime.now(ZoneInfo("Europe/London")).hour
+    new_york_hour = datetime.now(ZoneInfo("America/New_York")).hour
+
     sessions = []
-    # Approximate UTC windows; daylight-saving changes can shift London/New York.
-    if 0 <= hour < 9:
+    if 9 <= tokyo_hour < 18:
         sessions.append("Asia")
-    if 7 <= hour < 16:
+    if 8 <= london_hour < 17:
         sessions.append("London")
-    if 13 <= hour < 22:
+    if 8 <= new_york_hour < 17:
         sessions.append("New York")
     return " + ".join(sessions) if sessions else "Between major sessions"
 
@@ -588,6 +650,21 @@ last_price = float(frames["15M"].iloc[-1]["close"])
 last_time = frames["15M"].iloc[-1]["datetime"].to_pydatetime()
 local_time = last_time.astimezone(LOCAL_TZ)
 
+latest_15m_close = last_time + timedelta(minutes=15)
+data_age = datetime.now(timezone.utc) - latest_15m_close
+data_is_stale = data_age > timedelta(minutes=45)
+
+if data_is_stale:
+    result["signal"] = "NO TRADE"
+    result["entry"] = None
+    result["sl"] = None
+    result["tp1"] = None
+    result["tp2"] = None
+    result["tp3"] = None
+    result["stale_data"] = True
+else:
+    result["stale_data"] = False
+
 # Daily safety limit: count each distinct live signal candle only once.
 # The counter is kept in the current Streamlit session and resets on a new Kabul date.
 MAX_DAILY_SIGNALS = 3
@@ -624,7 +701,7 @@ m3.metric("Model Score", f'{result["score"]}%')
 m4.metric("Daily Signals", f"{daily_signal_count}/{MAX_DAILY_SIGNALS}")
 m5.metric("Current Session", market_session())
 
-st.caption(f"Last 15M candle time: {local_time.strftime('%Y-%m-%d %H:%M')} Kabul")
+st.caption(f"Last fully closed 15M candle: {local_time.strftime('%Y-%m-%d %H:%M')} Kabul · Closed-candle analysis")
 
 # -------------------------- SIGNAL PANEL --------------------------
 
@@ -636,7 +713,12 @@ if result["signal"] == "BUY":
 elif result["signal"] == "SELL":
     st.error("SELL signal — only after reviewing market conditions and your personal risk.")
 else:
-    if result.get("daily_limit_reached", False):
+    if result.get("stale_data", False):
+        st.warning(
+            "STALE MARKET DATA — the latest fully closed 15M candle is older than 45 minutes. "
+            "Live signals are disabled until fresh market data arrives."
+        )
+    elif result.get("daily_limit_reached", False):
         st.warning("DAILY LIMIT REACHED — the maximum of 3 signals has been reached for this Kabul market day.")
     else:
         st.warning("NO TRADE — entry conditions are not fully met. Do not force a trade.")
@@ -700,6 +782,8 @@ why = [
     f"SELL Pullback to EMA20: {'Confirmed' if result['sell_pullback'] else 'Not Confirmed'}",
     f"Bullish Candle Confirmation: {'Confirmed' if result['bullish_candle'] else 'Not Confirmed'}",
     f"Bearish Candle Confirmation: {'Confirmed' if result['bearish_candle'] else 'Not Confirmed'}",
+    f"5M BUY Momentum: {'Confirmed' if result['five_min_buy_confirm'] else 'Not Confirmed'}",
+    f"5M SELL Momentum: {'Confirmed' if result['five_min_sell_confirm'] else 'Not Confirmed'}",
 ]
 for item in why:
     st.write(f"• {item}")
