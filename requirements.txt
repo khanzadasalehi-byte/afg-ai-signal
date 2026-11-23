@@ -3,8 +3,3 @@ streamlit
 pandas
 numpy
 requests
-scikit-learn
-xgboost
-plotly
-ta
-joblib
