@@ -85,16 +85,12 @@ small, .stCaption { color:#9ba8ba !important; }
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
   <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE</span></div>
-  <div class="hero-sub">Institutional-style XAU/USD technical dashboard · Multi-timeframe market intelligence</div>
-  <span class="hero-chip">LIVE MARKET DATA</span><span class="hero-chip">4 TIMEFRAMES</span><span class="hero-chip">RISK-FIRST SIGNALS</span>
+  <div class="hero-sub">Automatic BUY LIMIT / SELL LIMIT · XAU/USD</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("CLOSED-CANDLE ANALYSIS  ·  MULTI-TIMEFRAME CONFIRMATION  ·  RISK MANAGEMENT  ·  HISTORICAL TESTING")
-st.info(
-    "Educational analysis only. Signals do not guarantee profits. The model score is a technical alignment score, "
-    "not a statistically validated probability of winning. Verify live broker prices and risk before trading."
-)
+st.caption("XAU/USD · Closed-candle analysis · BUY LIMIT / SELL LIMIT")
+st.caption("Technical score is not a win probability. Signals are suggestions only; verify prices and risk with your broker.")
 
 # -------------------------- SETTINGS --------------------------
 
@@ -116,20 +112,10 @@ LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
 
 with st.sidebar:
-    st.markdown("### 🇦🇫 AFG ELITE")
-    st.caption("CONTROL CENTER · XAU/USD")
-    st.divider()
-    st.header("Settings")
+    st.markdown("### 🇦🇫 AFG GOLD PRO")
+    st.caption("XAU/USD · LIMIT SIGNALS")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
-    st.caption("The API key is read from Streamlit Secrets.")
-    st.divider()
-    st.subheader("Risk Management Settings")
-    atr_sl = st.slider("ATR Stop-Loss Multiplier", 1.0, 3.0, 1.5, 0.1)
-    min_adx = st.slider("Minimum ADX for Entry", 15, 35, 20, 1)
-    min_confidence = st.slider("Minimum Signal Score", 55, 90, 70, 1)
-    st.caption("These settings change the analysis rules only and do not guarantee results.")
-    st.divider()
-    st.caption("Daily signal cap: 3 maximum in this app session. The counter is not a permanent account-wide limit.")
+    st.caption("Data: Twelve Data · Daily signal cap: 3")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -382,18 +368,50 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
         signal, direction = "SELL", "SELL"
         score = sell_score
 
-    entry = float(r15["close"])
+    current_price = float(r15["close"])
     atr_value = float(r15["atr"])
+    entry = current_price
     sl = tp1 = tp2 = tp3 = None
+    order_type = None
+    limit_distance_atr = None
 
+    # AI-calculated pending limit order: anchor the retracement near EMA20,
+    # then require the limit to remain on the correct side of market price.
     if direction and np.isfinite(atr_value) and atr_value > 0:
-        risk = atr_value * sl_multiplier
+        recent_structure = data["15M"].tail(12)
+        ema20_value = float(r15["ema20"])
         if direction == "BUY":
-            sl = entry - risk
-            tp1, tp2, tp3 = entry + risk, entry + 2*risk, entry + 3*risk
+            entry = ema20_value + 0.08 * atr_value
+            limit_distance_atr = (current_price - entry) / atr_value
+            swing_low = float(recent_structure["low"].min())
+            sl = min(swing_low - 0.15 * atr_value, entry - 0.35 * atr_value)
+            order_type = "BUY LIMIT"
+            risk = entry - sl
+            valid_limit = 0.03 <= limit_distance_atr <= 0.75
+            valid_risk = 0.35 * atr_value <= risk <= 2.0 * atr_value
+            if valid_limit and valid_risk:
+                tp1, tp2, tp3 = entry + risk, entry + 2 * risk, entry + 3 * risk
+            else:
+                direction = None
         else:
-            sl = entry + risk
-            tp1, tp2, tp3 = entry - risk, entry - 2*risk, entry - 3*risk
+            entry = ema20_value - 0.08 * atr_value
+            limit_distance_atr = (entry - current_price) / atr_value
+            swing_high = float(recent_structure["high"].max())
+            sl = max(swing_high + 0.15 * atr_value, entry + 0.35 * atr_value)
+            order_type = "SELL LIMIT"
+            risk = sl - entry
+            valid_limit = 0.03 <= limit_distance_atr <= 0.75
+            valid_risk = 0.35 * atr_value <= risk <= 2.0 * atr_value
+            if valid_limit and valid_risk:
+                tp1, tp2, tp3 = entry - risk, entry - 2 * risk, entry - 3 * risk
+            else:
+                direction = None
+
+        if direction is None:
+            signal = "NO TRADE"
+            entry = current_price
+            sl = tp1 = tp2 = tp3 = None
+            order_type = None
 
     return {
         "signal": signal,
@@ -401,6 +419,9 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
         "buy_score": buy_score,
         "sell_score": sell_score,
         "entry": entry,
+        "current_price": current_price,
+        "order_type": order_type,
+        "limit_distance_atr": limit_distance_atr,
         "sl": sl,
         "tp1": tp1,
         "tp2": tp2,
@@ -436,192 +457,6 @@ def market_session():
     return " + ".join(sessions) if sessions else "Between major sessions"
 
 
-# -------------------------- HISTORICAL BACKTEST --------------------------
-
-def run_backtest(
-    frames: dict,
-    sl_multiplier: float,
-    adx_floor: int,
-    confidence_floor: int,
-    history_limit: int = 240,
-    max_holding_bars: int = 24,
-):
-    """
-    Conservative 15M walk-forward backtest.
-    Signals use only candles fully closed by the signal candle close.
-    Entry is the next 15M candle open.
-    If SL and TP are both touched in one candle, SL is counted first.
-    Each TP is evaluated as a separate fixed-R outcome.
-    """
-    durations = {
-        "5M": pd.Timedelta(minutes=5),
-        "15M": pd.Timedelta(minutes=15),
-        "1H": pd.Timedelta(hours=1),
-        "4H": pd.Timedelta(hours=4),
-    }
-
-    d15 = frames["15M"].reset_index(drop=True)
-    if len(d15) < max_holding_bars + 30:
-        return pd.DataFrame(), "Not enough 15M candles are available for backtesting."
-
-    first_i = max(0, len(d15) - history_limit - max_holding_bars - 1)
-    last_i = len(d15) - max_holding_bars - 1
-    records = []
-
-    for i in range(first_i, last_i):
-        signal_bar = d15.iloc[i]
-        signal_close_time = signal_bar["datetime"] + durations["15M"]
-
-        sliced = {}
-        enough_history = True
-
-        for label in ["5M", "15M", "1H", "4H"]:
-            source = frames[label]
-            if label == "15M":
-                part = source[source["datetime"] <= signal_bar["datetime"]].copy()
-            else:
-                # Only bars that had fully closed by the 15M signal close.
-                part = source[
-                    source["datetime"] + durations[label] <= signal_close_time
-                ].copy()
-
-            if len(part) < 210:
-                enough_history = False
-                break
-            sliced[label] = part.reset_index(drop=True)
-
-        if not enough_history:
-            continue
-
-        try:
-            signal = analyze_signal(
-                sliced,
-                sl_multiplier,
-                adx_floor,
-                confidence_floor,
-            )
-        except Exception:
-            continue
-
-        if signal["signal"] == "NO TRADE":
-            continue
-
-        # Enter at the next 15M candle open, not at the signal candle close.
-        entry_index = i + 1
-        entry_bar = d15.iloc[entry_index]
-        entry = float(entry_bar["open"])
-        atr_value = float(signal_bar["atr"])
-
-        if not np.isfinite(atr_value) or atr_value <= 0:
-            continue
-
-        risk_distance = atr_value * sl_multiplier
-        if signal["signal"] == "BUY":
-            sl = entry - risk_distance
-            targets = {
-                "TP1": entry + risk_distance,
-                "TP2": entry + 2 * risk_distance,
-                "TP3": entry + 3 * risk_distance,
-            }
-        else:
-            sl = entry + risk_distance
-            targets = {
-                "TP1": entry - risk_distance,
-                "TP2": entry - 2 * risk_distance,
-                "TP3": entry - 3 * risk_distance,
-            }
-
-        outcomes = {}
-        for target_name, target_price in targets.items():
-            outcome = "TIMEOUT"
-            exit_index = None
-
-            end_index = min(
-                entry_index + max_holding_bars,
-                len(d15) - 1
-            )
-
-            for j in range(entry_index, end_index + 1):
-                bar = d15.iloc[j]
-                high = float(bar["high"])
-                low = float(bar["low"])
-
-                if signal["signal"] == "BUY":
-                    stop_hit = low <= sl
-                    target_hit = high >= target_price
-                else:
-                    stop_hit = high >= sl
-                    target_hit = low <= target_price
-
-                # Conservative same-bar assumption: stop loss first.
-                if stop_hit:
-                    outcome = "SL"
-                    exit_index = j
-                    break
-                if target_hit:
-                    outcome = "TP"
-                    exit_index = j
-                    break
-
-            outcomes[target_name] = outcome
-
-        records.append({
-            "Signal Time": signal_bar["datetime"],
-            "Direction": signal["signal"],
-            "Score": signal["score"],
-            "Entry": entry,
-            "SL": sl,
-            "TP1": targets["TP1"],
-            "TP2": targets["TP2"],
-            "TP3": targets["TP3"],
-            "TP1 Result": outcomes["TP1"],
-            "TP2 Result": outcomes["TP2"],
-            "TP3 Result": outcomes["TP3"],
-        })
-
-    if not records:
-        return pd.DataFrame(), (
-            "No evaluable signals were found in the historical period, "
-            "or there was not enough history to align the timeframes."
-        )
-
-    result_df = pd.DataFrame(records).sort_values("Signal Time").reset_index(drop=True)
-    return result_df, None
-
-
-def backtest_stats(trades: pd.DataFrame, target_name: str):
-    outcomes = trades[f"{target_name} Result"]
-    total = len(outcomes)
-    wins = int((outcomes == "TP").sum())
-    losses = int((outcomes == "SL").sum())
-    timeouts = int((outcomes == "TIMEOUT").sum())
-    win_rate = (wins / total * 100) if total else 0.0
-    reward_r = {"TP1": 1, "TP2": 2, "TP3": 3}[target_name]
-    r_values = np.where(
-        outcomes == "TP",
-        reward_r,
-        np.where(outcomes == "SL", -1.0, 0.0)
-    )
-    net_r = float(np.sum(r_values))
-    avg_r = float(np.mean(r_values)) if total else 0.0
-
-    equity = np.cumsum(r_values)
-    running_peak = np.maximum.accumulate(np.insert(equity, 0, 0.0))[1:]
-    drawdowns = running_peak - equity
-    max_dd_r = float(np.max(drawdowns)) if len(drawdowns) else 0.0
-
-    return {
-        "total": total,
-        "wins": wins,
-        "losses": losses,
-        "timeouts": timeouts,
-        "win_rate": win_rate,
-        "net_r": net_r,
-        "avg_r": avg_r,
-        "max_dd_r": max_dd_r,
-    }
-
-
 # -------------------------- LOAD & ANALYZE --------------------------
 
 if refresh:
@@ -645,7 +480,7 @@ if errors:
     st.info("Check the API key, request limits, and internet connection.")
     st.stop()
 
-result = analyze_signal(frames, atr_sl, min_adx, min_confidence)
+result = analyze_signal(frames, 1.5, 20, 70)
 last_price = float(frames["15M"].iloc[-1]["close"])
 last_time = frames["15M"].iloc[-1]["datetime"].to_pydatetime()
 local_time = last_time.astimezone(LOCAL_TZ)
@@ -657,6 +492,7 @@ data_is_stale = data_age > timedelta(minutes=45)
 if data_is_stale:
     result["signal"] = "NO TRADE"
     result["entry"] = None
+    result["order_type"] = None
     result["sl"] = None
     result["tp1"] = None
     result["tp2"] = None
@@ -680,6 +516,7 @@ if result["signal"] in ("BUY", "SELL"):
         if len(signal_keys) >= MAX_DAILY_SIGNALS:
             result["signal"] = "NO TRADE"
             result["entry"] = None
+            result["order_type"] = None
             result["sl"] = None
             result["tp1"] = None
             result["tp2"] = None
@@ -694,24 +531,23 @@ daily_signal_count = len(st.session_state.get("daily_signal_keys", []))
 
 # -------------------------- TOP METRICS --------------------------
 
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("XAU/USD Price", f"{last_price:,.2f}")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("XAU/USD", f"{last_price:,.2f}")
 m2.metric("Signal", result["signal"])
-m3.metric("Model Score", f'{result["score"]}%')
+m3.metric("Technical Score", f'{result["score"]}%')
 m4.metric("Daily Signals", f"{daily_signal_count}/{MAX_DAILY_SIGNALS}")
-m5.metric("Current Session", market_session())
+st.caption(f"Market session: {market_session()} · Last closed 15M candle: {local_time.strftime('%Y-%m-%d %H:%M')} Kabul")
 
-st.caption(f"Last fully closed 15M candle: {local_time.strftime('%Y-%m-%d %H:%M')} Kabul · Closed-candle analysis")
 
 # -------------------------- SIGNAL PANEL --------------------------
 
 st.divider()
-st.subheader("🎯 LIVE SIGNAL CENTER")
+st.subheader("🎯 TRADE SIGNAL")
 
 if result["signal"] == "BUY":
-    st.success("BUY signal — only after reviewing market conditions and your personal risk.")
+    st.success("BUY LIMIT setup calculated by the AI — pending until price reaches the entry level.")
 elif result["signal"] == "SELL":
-    st.error("SELL signal — only after reviewing market conditions and your personal risk.")
+    st.error("SELL LIMIT setup calculated by the AI — pending until price reaches the entry level.")
 else:
     if result.get("stale_data", False):
         st.warning(
@@ -724,9 +560,10 @@ else:
         st.warning("NO TRADE — entry conditions are not fully met. Do not force a trade.")
 
 if result["signal"] != "NO TRADE":
+    st.info(f"ORDER TYPE: {result['order_type']} · STATUS: PENDING · CURRENT PRICE: {result['current_price']:,.2f}")
     cols = st.columns(5)
     values = [
-        ("ENTRY", result["entry"]),
+        ("LIMIT ENTRY", result["entry"]),
         ("STOP LOSS", result["sl"]),
         ("TAKE PROFIT 1", result["tp1"]),
         ("TAKE PROFIT 2", result["tp2"]),
@@ -734,156 +571,26 @@ if result["signal"] != "NO TRADE":
     ]
     for col, (label, value) in zip(cols, values):
         col.metric(label, f"{value:,.2f}")
-    st.caption(
-        "SL and TP levels are calculated using 15M ATR with 1:1, 1:2, and 1:3 risk/reward ratios. "
-        "Spread, slippage, and commissions are not included in these calculations."
-    )
+    st.caption("Entry is calculated from the 15M EMA20 pullback. SL uses recent swing structure; targets are 1R, 2R and 3R. This app does not place broker orders.")
 else:
-    st.write(
-        "The system has not identified a valid entry point at this time. "
-        "SL and TP levels are intentionally hidden to avoid implying that an invalid setup is tradable."
-    )
+    st.caption("No valid setup. Entry, SL and TP are hidden until all confirmation rules are met.")
 
-# -------------------------- MULTI-TIMEFRAME TABLE --------------------------
+# -------------------------- MARKET OVERVIEW --------------------------
 
 st.divider()
-st.subheader("📊 MARKET STRUCTURE · MULTI-TIMEFRAME")
-
+st.subheader("📊 MARKET OVERVIEW")
 rows = []
 for label in ["5M", "15M", "1H", "4H"]:
     r = frames[label].iloc[-1]
     rows.append({
         "Timeframe": label,
         "Price": round(float(r["close"]), 2),
-        "EMA 20": round(float(r["ema20"]), 2),
-        "EMA 50": round(float(r["ema50"]), 2),
-        "EMA 200": round(float(r["ema200"]), 2),
-        "RSI": round(float(r["rsi"]), 2),
-        "ADX": round(float(r["adx"]), 2),
-        "+DI": round(float(r["plus_di"]), 2),
-        "-DI": round(float(r["minus_di"]), 2),
-        "MACD": "Positive" if r["macd_hist"] > 0 else "Negative",
         "Trend": trend_of(r),
+        "RSI": round(float(r["rsi"]), 1),
+        "ADX": round(float(r["adx"]), 1),
     })
-
 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-# -------------------------- WHY SIGNAL --------------------------
-
-st.subheader("🔎 SIGNAL DIAGNOSTICS · WHY THIS DECISION")
-why = [
-    f"Trend 4H: {result['trend_4h']}",
-    f"Trend 1H: {result['trend_1h']}",
-    f"Trend 15M: {result['trend_15m']}",
-    f"Buy Score: {result['buy_score']}/100",
-    f"Sell Score: {result['sell_score']}/100",
-    f"15M ADX Filter: {'Confirmed' if result['adx_ok'] else 'Not Confirmed'}",
-    f"BUY Pullback to EMA20: {'Confirmed' if result['buy_pullback'] else 'Not Confirmed'}",
-    f"SELL Pullback to EMA20: {'Confirmed' if result['sell_pullback'] else 'Not Confirmed'}",
-    f"Bullish Candle Confirmation: {'Confirmed' if result['bullish_candle'] else 'Not Confirmed'}",
-    f"Bearish Candle Confirmation: {'Confirmed' if result['bearish_candle'] else 'Not Confirmed'}",
-    f"5M BUY Momentum: {'Confirmed' if result['five_min_buy_confirm'] else 'Not Confirmed'}",
-    f"5M SELL Momentum: {'Confirmed' if result['five_min_sell_confirm'] else 'Not Confirmed'}",
-]
-for item in why:
-    st.write(f"• {item}")
-
-# -------------------------- BACKTEST DASHBOARD --------------------------
-
-st.divider()
-st.subheader("🧪 STRATEGY LAB · HISTORICAL BACKTEST")
-
-st.info(
-    "The backtest runs on up to the latest 240 15-minute opportunities. "
-    "Entry is simulated at the next candle open, and each target is evaluated separately. "
-    "This is a limited historical sample and does not prove future profitability."
-)
-
-with st.spinner("Running the backtest on historical candles..."):
-    backtest_trades, backtest_error = run_backtest(
-        frames,
-        atr_sl,
-        min_adx,
-        min_confidence,
-    )
-
-if backtest_error:
-    st.warning(backtest_error)
-    st.caption(
-        "If the data sample is small, check your Twelve Data plan limits or available history. "
-        "No results or win rate are fabricated when sufficient data is unavailable."
-    )
-else:
-    st.metric("Evaluable Signals", len(backtest_trades))
-
-    stat_cols = st.columns(3)
-    for col, target in zip(stat_cols, ["TP1", "TP2", "TP3"]):
-        stats = backtest_stats(backtest_trades, target)
-        col.metric(
-            f"{target} — Win Rate",
-            f"{stats['win_rate']:.1f}%",
-            help="Hits on this target divided by all evaluable trades; timeouts are not counted as wins."
-        )
-
-    detail_rows = []
-    for target in ["TP1", "TP2", "TP3"]:
-        stats = backtest_stats(backtest_trades, target)
-        detail_rows.append({
-            "Target": target,
-            "Trades": stats["total"],
-            "Wins (TP)": stats["wins"],
-            "Stop Losses (SL)": stats["losses"],
-            "Timed Out": stats["timeouts"],
-            "Win Rate": f"{stats['win_rate']:.1f}%",
-            "Net R": round(stats["net_r"], 2),
-            "Average R": round(stats["avg_r"], 3),
-            "Maximum Drawdown (R)": round(stats["max_dd_r"], 2),
-        })
-
-    st.dataframe(
-        pd.DataFrame(detail_rows),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    buy_count = int((backtest_trades["Direction"] == "BUY").sum())
-    sell_count = int((backtest_trades["Direction"] == "SELL").sum())
-    b1, b2 = st.columns(2)
-    b1.metric("BUY Signals", buy_count)
-    b2.metric("SELL Signals", sell_count)
-
-    with st.expander("View Backtest Trades"):
-        display_trades = backtest_trades.copy()
-        display_trades["Signal Time"] = (
-            pd.to_datetime(display_trades["Signal Time"], utc=True)
-            .dt.tz_convert(LOCAL_TZ)
-            .dt.strftime("%Y-%m-%d %H:%M")
-        )
-        st.dataframe(
-            display_trades.sort_values("Signal Time", ascending=False),
-            use_container_width=True,
-            hide_index=True
-        )
-
-    st.caption(
-        "Backtest assumptions: each target is evaluated separately with a fixed 1R risk; "
-        "if SL and TP are both touched in the same candle, SL is assumed to occur first; "
-        "spread, commissions, slippage, price gaps, and real order execution are not modeled. "
-        "overlapping trades are counted independently, so this report is not a portfolio simulation."
-    )
-
-
-# -------------------------- RECENT PRICE DATA --------------------------
-
-with st.expander("📈 Open Latest 15-Minute Candle Data"):
-    view = frames["15M"][["datetime", "open", "high", "low", "close", "rsi", "adx"]].tail(12).copy()
-    view["datetime"] = view["datetime"].dt.strftime("%Y-%m-%d %H:%M UTC")
-    st.dataframe(view.sort_values("datetime", ascending=False), use_container_width=True, hide_index=True)
-
-st.divider()
-st.caption(
-    "AFG AI GOLD PRO ELITE | Data is provided by Twelve Data. "
-    "Signals may change when a new candle closes. Before any trade, "
-    "independently verify your broker's live price, spread, position size, and maximum account risk. "
-    "Daily signal counter is session-based and resets when the Kabul date changes or the app session restarts."
-)
+with st.expander("How the signal is calculated"):
+    st.write("The system checks 4H and 1H trend direction, 15M trend and pullback, RSI, ADX, candle confirmation and 5M momentum. It only shows a limit setup when the entry is on the correct side of the current price and the stop distance is acceptable.")
+    st.caption("Maximum 3 new signals per Kabul day in this app session. This is not a broker-side limit and may reset if the app session restarts.")
