@@ -1060,3 +1060,172 @@ if st.button("🚀 اجرای تحلیل هوشمند طلا"):
     except Exception as e:
         st.error(f"خطا در تحلیل: {e}")
 
+# ===== AFG AI GOLD PRO - MULTI TIMEFRAME CONFIRMATION =====
+
+st.divider()
+st.header("🧠 تأیید هوشمند چندتایم‌فریمی")
+
+def afg_fetch_timeframe(interval, api_key):
+    response = requests.get(
+        "https://api.twelvedata.com/time_series",
+        params={
+            "symbol": "XAU/USD",
+            "interval": interval,
+            "outputsize": 250,
+            "timezone": "UTC",
+            "apikey": api_key
+        },
+        timeout=30
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    if "values" not in data:
+        raise ValueError(data.get("message", "داده دریافت نشد"))
+
+    frame = pd.DataFrame(data["values"])
+
+    for col in ["open", "high", "low", "close"]:
+        frame[col] = pd.to_numeric(frame[col], errors="coerce")
+
+    frame = frame.dropna(
+        subset=["open", "high", "low", "close"]
+    )
+
+    frame = frame.sort_values("datetime").reset_index(drop=True)
+
+    # حذف کندل در حال تشکیل
+    if len(frame) > 1:
+        frame = frame.iloc[:-1].copy()
+
+    if len(frame) < 210:
+        raise ValueError(
+            f"داده کافی نیست: فقط {len(frame)} کندل دریافت شد."
+        )
+
+    return afg_add_indicators(frame)
+
+
+if st.button("🔍 تأیید نهایی چهار تایم‌فریم"):
+    try:
+        api_key = st.secrets["TWELVE_DATA_API_KEY"]
+
+        timeframe_map = {
+            "5 دقیقه": "5min",
+            "15 دقیقه": "15min",
+            "1 ساعت": "1h",
+            "4 ساعت": "4h"
+        }
+
+        results = {}
+        errors = {}
+
+        progress = st.progress(0)
+
+        for index, (name, interval) in enumerate(timeframe_map.items()):
+            try:
+                frame = afg_fetch_timeframe(interval, api_key)
+                signal, score, reasons = afg_generate_signal(frame)
+
+                results[name] = {
+                    "signal": signal,
+                    "score": score,
+                    "price": float(frame.iloc[-1]["close"]),
+                    "atr": float(frame.iloc[-1]["ATR"]),
+                    "time": frame.iloc[-1]["datetime"]
+                }
+
+            except Exception as e:
+                errors[name] = str(e)
+
+            progress.progress((index + 1) / len(timeframe_map))
+
+        st.subheader("نتیجه هر تایم‌فریم")
+
+        for name in timeframe_map:
+            if name in results:
+                item = results[name]
+                st.write(
+                    f"**{name}:** {item['signal']} "
+                    f"| امتیاز: {item['score']} از 6 "
+                    f"| قیمت: ${item['price']:.2f}"
+                )
+            else:
+                st.error(f"{name}: {errors.get(name, 'نامشخص')}")
+
+        if len(results) == 4:
+            buy_count = sum(
+                x["signal"] == "BUY" for x in results.values()
+            )
+            sell_count = sum(
+                x["signal"] == "SELL" for x in results.values()
+            )
+
+            # تایم‌فریم‌های بالاتر باید هم‌جهت باشند.
+            higher_buy = (
+                results["1 ساعت"]["signal"] == "BUY"
+                and results["4 ساعت"]["signal"] == "BUY"
+            )
+
+            higher_sell = (
+                results["1 ساعت"]["signal"] == "SELL"
+                and results["4 ساعت"]["signal"] == "SELL"
+            )
+
+            final_signal = "NO TRADE"
+
+            if higher_buy and buy_count >= 3:
+                final_signal = "BUY"
+
+            elif higher_sell and sell_count >= 3:
+                final_signal = "SELL"
+
+            st.divider()
+            st.subheader("🎯 سیگنال نهایی AFG AI GOLD PRO")
+
+            if final_signal == "BUY":
+                st.success("BUY - تأیید روند صعودی در چند تایم‌فریم")
+
+            elif final_signal == "SELL":
+                st.error("SELL - تأیید روند نزولی در چند تایم‌فریم")
+
+            else:
+                st.warning(
+                    "NO TRADE - تایم‌فریم‌ها تأیید کافی ندارند."
+                )
+
+            # محاسبه سطوح تخمینی بر اساس ATR پانزده دقیقه
+            if final_signal != "NO TRADE":
+                entry = results["15 دقیقه"]["price"]
+                atr = results["15 دقیقه"]["atr"]
+
+                if atr > 0:
+                    if final_signal == "BUY":
+                        sl = entry - 1.5 * atr
+                        tp1 = entry + 1.5 * atr
+                        tp2 = entry + 3 * atr
+                    else:
+                        sl = entry + 1.5 * atr
+                        tp1 = entry - 1.5 * atr
+                        tp2 = entry - 3 * atr
+
+                    st.write("### سطوح تخمینی معامله")
+                    a, b, c, d = st.columns(4)
+                    a.metric("Entry", f"${entry:.2f}")
+                    b.metric("Stop Loss", f"${sl:.2f}")
+                    c.metric("TP 1", f"${tp1:.2f}")
+                    d.metric("TP 2", f"${tp2:.2f}")
+
+            st.caption(
+                "این سیستم قانون‌محور است. سیگنال نهایی تضمین سود نیست. "
+                "داده‌ها ممکن است با تأخیر یا محدودیت API همراه باشند."
+            )
+
+        else:
+            st.warning(
+                "برای صدور سیگنال نهایی، اطلاعات هر چهار تایم‌فریم لازم است."
+            )
+
+    except Exception as e:
+        st.error(f"خطا در تحلیل چندتایم‌فریمی: {e}")
+
