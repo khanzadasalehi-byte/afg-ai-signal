@@ -796,3 +796,267 @@ if st.button("دریافت کندل‌های طلا"):
 
     except Exception as e:
         st.error(f"خطا: {e}")
+# ===== AFG AI GOLD PRO - TECHNICAL SIGNAL ENGINE =====
+
+st.divider()
+st.header("🤖 AFG AI GOLD PRO - تحلیل هوشمند طلا")
+
+def afg_add_indicators(df):
+    df = df.copy()
+
+    # EMA
+    df["EMA20"] = df["close"].ewm(span=20, adjust=False).mean()
+    df["EMA50"] = df["close"].ewm(span=50, adjust=False).mean()
+    df["EMA200"] = df["close"].ewm(span=200, adjust=False).mean()
+
+    # RSI
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, 1e-10)
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD
+    ema12 = df["close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
+
+    # ATR
+    prev_close = df["close"].shift(1)
+    tr = pd.concat([
+        df["high"] - df["low"],
+        (df["high"] - prev_close).abs(),
+        (df["low"] - prev_close).abs()
+    ], axis=1).max(axis=1)
+
+    df["ATR"] = tr.ewm(alpha=1/14, adjust=False).mean()
+
+    # ADX and directional indicators
+    up_move = df["high"].diff()
+    down_move = -df["low"].diff()
+
+    plus_dm = up_move.where(
+        (up_move > down_move) & (up_move > 0), 0
+    )
+    minus_dm = down_move.where(
+        (down_move > up_move) & (down_move > 0), 0
+    )
+
+    atr_safe = df["ATR"].replace(0, 1e-10)
+
+    plus_di = 100 * plus_dm.ewm(
+        alpha=1/14, adjust=False
+    ).mean() / atr_safe
+
+    minus_di = 100 * minus_dm.ewm(
+        alpha=1/14, adjust=False
+    ).mean() / atr_safe
+
+    dx = 100 * (plus_di - minus_di).abs() / (
+        plus_di + minus_di
+    ).replace(0, 1e-10)
+
+    df["PLUS_DI"] = plus_di
+    df["MINUS_DI"] = minus_di
+    df["ADX"] = dx.ewm(alpha=1/14, adjust=False).mean()
+
+    return df
+
+
+def afg_generate_signal(df):
+    last = df.iloc[-1]
+
+    score = 0
+    reasons = []
+
+    # EMA trend
+    if last["EMA20"] > last["EMA50"] > last["EMA200"]:
+        score += 2
+        reasons.append("روند صعودی EMA")
+    elif last["EMA20"] < last["EMA50"] < last["EMA200"]:
+        score -= 2
+        reasons.append("روند نزولی EMA")
+
+    # Price position
+    if last["close"] > last["EMA20"]:
+        score += 1
+        reasons.append("قیمت بالاتر از EMA20")
+    elif last["close"] < last["EMA20"]:
+        score -= 1
+        reasons.append("قیمت پایین‌تر از EMA20")
+
+    # RSI
+    if 50 < last["RSI"] < 70:
+        score += 1
+        reasons.append("RSI به نفع خریداران")
+    elif 30 < last["RSI"] < 50:
+        score -= 1
+        reasons.append("RSI به نفع فروشندگان")
+
+    # MACD
+    if last["MACD"] > last["MACD_SIGNAL"]:
+        score += 1
+        reasons.append("MACD صعودی")
+    elif last["MACD"] < last["MACD_SIGNAL"]:
+        score -= 1
+        reasons.append("MACD نزولی")
+
+    # ADX direction
+    if last["ADX"] >= 20:
+        if last["PLUS_DI"] > last["MINUS_DI"]:
+            score += 1
+            reasons.append("قدرت روند به نفع خریداران")
+        elif last["MINUS_DI"] > last["PLUS_DI"]:
+            score -= 1
+            reasons.append("قدرت روند به نفع فروشندگان")
+    else:
+        reasons.append("قدرت روند ضعیف است")
+
+    if score >= 4:
+        signal = "BUY"
+    elif score <= -4:
+        signal = "SELL"
+    else:
+        signal = "NO TRADE"
+
+    return signal, score, reasons
+
+
+signal_tf = st.selectbox(
+    "تایم‌فریم تحلیل سیگنال",
+    {
+        "1 دقیقه": "1min",
+        "5 دقیقه": "5min",
+        "15 دقیقه": "15min",
+        "1 ساعت": "1h",
+        "4 ساعت": "4h"
+    }.keys(),
+    key="afg_signal_tf"
+)
+
+if st.button("🚀 اجرای تحلیل هوشمند طلا"):
+    try:
+        api_key = st.secrets["TWELVE_DATA_API_KEY"]
+
+        intervals = {
+            "1 دقیقه": "1min",
+            "5 دقیقه": "5min",
+            "15 دقیقه": "15min",
+            "1 ساعت": "1h",
+            "4 ساعت": "4h"
+        }
+
+        response = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": "XAU/USD",
+                "interval": intervals[signal_tf],
+                "outputsize": 250,
+                "timezone": "UTC",
+                "apikey": api_key
+            },
+            timeout=30
+        )
+
+        data = response.json()
+
+        if "values" not in data:
+            st.error(data.get("message", "دریافت اطلاعات ناموفق بود."))
+
+        else:
+            df = pd.DataFrame(data["values"])
+
+            for col in ["open", "high", "low", "close"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            df = df.dropna(
+                subset=["open", "high", "low", "close"]
+            )
+
+            df = df.sort_values("datetime").reset_index(drop=True)
+
+            # Exclude the newest candle because it may still be forming.
+            if len(df) > 1:
+                df = df.iloc[:-1].copy()
+
+            if len(df) < 210:
+                st.warning(
+                    f"داده کافی نیست. حداقل 210 کندل لازم است؛ "
+                    f"تعداد موجود: {len(df)}"
+                )
+            else:
+                df = afg_add_indicators(df)
+                last = df.iloc[-1]
+
+                signal, score, reasons = afg_generate_signal(df)
+
+                st.subheader(f"نتیجه تحلیل: {signal}")
+
+                if signal == "BUY":
+                    st.success("سیگنال خرید؛ قبل از ورود ریسک را بررسی کن.")
+                elif signal == "SELL":
+                    st.error("سیگنال فروش؛ قبل از ورود ریسک را بررسی کن.")
+                else:
+                    st.warning("شرایط کافی نیست؛ فعلاً معامله نکن.")
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric("قیمت کندل بسته‌شده", f"${last['close']:.2f}")
+                c2.metric("امتیاز تحلیل", f"{score} از 6")
+                c3.metric("RSI", f"{last['RSI']:.2f}")
+
+                st.write("**تایم‌فریم:**", signal_tf)
+                st.write("**زمان آخرین کندل بسته‌شده:**", last["datetime"])
+                st.write("**ADX:**", round(last["ADX"], 2))
+                st.write("**ATR:**", round(last["ATR"], 3))
+
+                st.write("### دلایل تحلیل")
+                for reason in reasons:
+                    st.write("•", reason)
+
+                # Illustrative ATR-based risk levels
+                entry = float(last["close"])
+                atr = float(last["ATR"])
+
+                if signal == "BUY" and atr > 0:
+                    sl = entry - (1.5 * atr)
+                    risk = entry - sl
+                    tp1 = entry + risk
+                    tp2 = entry + (2 * risk)
+
+                    st.write("### سطوح پیشنهادی خرید")
+                    st.metric("Entry", f"${entry:.2f}")
+                    st.metric("Stop Loss", f"${sl:.2f}")
+                    st.metric("Take Profit 1", f"${tp1:.2f}")
+                    st.metric("Take Profit 2", f"${tp2:.2f}")
+
+                elif signal == "SELL" and atr > 0:
+                    sl = entry + (1.5 * atr)
+                    risk = sl - entry
+                    tp1 = entry - risk
+                    tp2 = entry - (2 * risk)
+
+                    st.write("### سطوح پیشنهادی فروش")
+                    st.metric("Entry", f"${entry:.2f}")
+                    st.metric("Stop Loss", f"${sl:.2f}")
+                    st.metric("Take Profit 1", f"${tp1:.2f}")
+                    st.metric("Take Profit 2", f"${tp2:.2f}")
+
+                st.write("### نمودار EMA")
+                chart_df = df.tail(100).set_index("datetime")
+                st.line_chart(
+                    chart_df[["close", "EMA20", "EMA50", "EMA200"]]
+                )
+
+                st.caption(
+                    "این سیگنال آموزشی و قانون‌محور است؛ "
+                    "تضمین سود نیست. سطوح ATR تخمینی هستند."
+                )
+
+    except Exception as e:
+        st.error(f"خطا در تحلیل: {e}")
+
