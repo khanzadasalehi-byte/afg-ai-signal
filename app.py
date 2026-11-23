@@ -197,7 +197,55 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
     if r5["close"] > r5["ema20"] and r5["macd_hist"] > 0: buy_score += 10
     if r5["close"] < r5["ema20"] and r5["macd_hist"] < 0: sell_score += 10
 
-    # ADX is a strength filter, not a direction indicator.
+    # Pullback + candle confirmation on 15M.
+    # A valid pullback must approach EMA20 within 0.35 ATR during the last
+    # six candles, then the latest candle must close back in the trend direction.
+    recent = data["15M"].tail(6).copy()
+    atr_now = float(r15["atr"]) if np.isfinite(r15["atr"]) else 0.0
+    tolerance = max(atr_now * 0.35, 0.0)
+
+    buy_pullback = False
+    sell_pullback = False
+    bullish_candle = False
+    bearish_candle = False
+
+    if len(recent) >= 2 and atr_now > 0:
+        buy_touch = (
+            (recent["low"] <= recent["ema20"] + tolerance)
+            & (recent["low"] >= recent["ema20"] - tolerance * 1.5)
+        ).any()
+        sell_touch = (
+            (recent["high"] >= recent["ema20"] - tolerance)
+            & (recent["high"] <= recent["ema20"] + tolerance * 1.5)
+        ).any()
+
+        candle_range = max(float(r15["high"] - r15["low"]), 1e-9)
+        candle_body = abs(float(r15["close"] - r15["open"]))
+        bullish_candle = (
+            float(r15["close"]) > float(r15["open"])
+            and float(r15["close"]) > float(recent.iloc[-2]["close"])
+            and (float(r15["high"]) - float(r15["close"])) / candle_range <= 0.40
+            and candle_body / candle_range >= 0.25
+        )
+        bearish_candle = (
+            float(r15["close"]) < float(r15["open"])
+            and float(r15["close"]) < float(recent.iloc[-2]["close"])
+            and (float(r15["close"]) - float(r15["low"])) / candle_range <= 0.40
+            and candle_body / candle_range >= 0.25
+        )
+
+        buy_pullback = bool(
+            buy_touch
+            and float(r15["close"]) > float(r15["ema20"])
+            and float(r15["ema20"]) > float(r15["ema50"])
+        )
+        sell_pullback = bool(
+            sell_touch
+            and float(r15["close"]) < float(r15["ema20"])
+            and float(r15["ema20"]) < float(r15["ema50"])
+        )
+
+    # ADX measures trend strength, not direction.
     adx_ok = float(r15["adx"]) >= adx_floor
     buy_valid = (
         trend_4h == "BULLISH"
@@ -205,6 +253,8 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
         and trend_15m != "BEARISH"
         and float(r15["rsi"]) < 70
         and adx_ok
+        and buy_pullback
+        and bullish_candle
         and buy_score >= confidence_floor
         and buy_score > sell_score
     )
@@ -214,6 +264,8 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
         and trend_15m != "BULLISH"
         and float(r15["rsi"]) > 30
         and adx_ok
+        and sell_pullback
+        and bearish_candle
         and sell_score >= confidence_floor
         and sell_score > buy_score
     )
@@ -256,6 +308,10 @@ def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_
         "trend_1h": trend_1h,
         "trend_15m": trend_15m,
         "adx_ok": adx_ok,
+        "buy_pullback": buy_pullback,
+        "sell_pullback": sell_pullback,
+        "bullish_candle": bullish_candle,
+        "bearish_candle": bearish_candle,
     }
 
 
@@ -380,6 +436,10 @@ why = [
     f"امتیاز خرید: {result['buy_score']}/100",
     f"امتیاز فروش: {result['sell_score']}/100",
     f"فیلتر ADX در 15M: {'تأیید شد' if result['adx_ok'] else 'تأیید نشد'}",
+    f"پولبک خرید به EMA20: {'تأیید شد' if result['buy_pullback'] else 'تأیید نشد'}",
+    f"پولبک فروش به EMA20: {'تأیید شد' if result['sell_pullback'] else 'تأیید نشد'}",
+    f"کندل تأییدی صعودی: {'تأیید شد' if result['bullish_candle'] else 'تأیید نشد'}",
+    f"کندل تأییدی نزولی: {'تأیید شد' if result['bearish_candle'] else 'تأیید نشد'}",
 ]
 for item in why:
     st.write(f"• {item}")
