@@ -676,3 +676,40 @@ st.caption(
     "Educational use only. Signals are not guaranteed. "
     "Always verify prices and manage risk independently."
 )
+# ===== AFG AI GOLD PRO - TWELVE DATA CONNECTION TEST =====
+
+st.divider()
+st.subheader("🟡 تست اتصال زنده طلا - Twelve Data")
+
+if st.button("آزمایش اتصال طلا"):
+    try:
+        api_key = st.secrets["TWELVE_DATA_API_KEY"]
+
+        response = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": "XAU/USD",
+                "interval": "1h",
+                "outputsize": 10,
+                "apikey": api_key
+            },
+            timeout=20
+        )
+
+        data = response.json()
+
+        if "values" in data:
+            df_test = pd.DataFrame(data["values"])
+            df_test["close"] = pd.to_numeric(df_test["close"])
+            df_test = df_test.iloc[::-1].reset_index(drop=True)
+
+            st.success("اتصال به Twelve Data موفق شد!")
+            st.metric("آخرین قیمت طلا", f"${df_test['close'].iloc[-1]:,.2f}")
+            st.dataframe(df_test.tail(5), use_container_width=True)
+        else:
+            st.error("داده دریافت نشد:")
+            st.write(data.get("message", data))
+
+    except Exception as e:
+        st.error(f"خطا در اتصال: {e}")
+
