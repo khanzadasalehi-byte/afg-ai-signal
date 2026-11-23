@@ -6,103 +6,60 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================================
-# AFG AI GOLD PRO ELITE
-# Gold multi-timeframe analysis with Entry, SL and TP1-TP3
-# Data provider: Twelve Data (XAU/USD)
+# AFG AI GOLD PRO ELITE V8
+# Strict multi-timeframe technical scanner + risk tools
+# Provider: Twelve Data | Signals are decision support only
 # ==========================================================
 
 st.set_page_config(
-    page_title="AFG AI GOLD PRO ELITE V7",
+    page_title="AFG AI GOLD PRO ELITE V8",
     page_icon="🇦🇫",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# -------------------------- ELITE VISUAL THEME --------------------------
+# ------------------------------ STYLE ------------------------------
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-:root { --gold: #d6ad55; --gold2: #f4d58a; --ink: #0a0e16; --panel: #111827; }
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.stApp { background: radial-gradient(circle at 12% 0%, #20283a 0%, #0b101a 42%, #080b12 100%); color: #edf1f7; }
-.block-container { max-width: 1500px; padding-top: 1.4rem; padding-bottom: 3rem; }
-[data-testid="stHeader"] { background: rgba(8,11,18,.78); }
-[data-testid="stSidebar"] { background: linear-gradient(180deg,#111827,#090d15); border-right: 1px solid rgba(214,173,85,.25); }
-[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color: var(--gold2); }
-.hero { padding: 25px 28px; border: 1px solid rgba(214,173,85,.42); border-radius: 20px; background: linear-gradient(115deg,rgba(214,173,85,.16),rgba(17,24,39,.94) 48%,rgba(10,14,22,.96)); box-shadow: 0 14px 40px rgba(0,0,0,.28); margin-bottom: 18px; }
-.hero-kicker { color: var(--gold2); font-size: .72rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
-.hero-title { color: #fff; font-size: clamp(1.65rem,3vw,2.55rem); line-height: 1.12; font-weight: 900; margin: 7px 0; }
-.hero-sub { color: #aeb8c8; font-size: .92rem; }
-.hero-chip { display:inline-block; border:1px solid rgba(244,213,138,.35); border-radius:999px; color:#f4d58a; padding:5px 11px; font-size:.72rem; margin:12px 6px 0 0; }
-h1,h2,h3 { letter-spacing: -.025em; }
-h2 { color: #f4d58a !important; }
-h3 { color: #e7c77f !important; }
-[data-testid="stMetric"] { background: linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(214,173,85,.22); padding:15px 17px; border-radius:15px; box-shadow:0 8px 24px rgba(0,0,0,.16); }
-[data-testid="stMetricLabel"] { color:#aeb8c8 !important; font-size:.78rem !important; }
-[data-testid="stMetricValue"] {
-    color:#fff !important;
-    font-weight:800 !important;
-    font-size:clamp(1rem, 2.1vw, 1.75rem) !important;
-    line-height:1.25 !important;
-    white-space:normal !important;
-    overflow:visible !important;
-    text-overflow:clip !important;
-    word-break:normal !important;
-    overflow-wrap:anywhere !important;
-}
-[data-testid="stMetricValue"] > div {
-    white-space:normal !important;
-    overflow:visible !important;
-    text-overflow:clip !important;
-}
-@media (max-width: 900px) {
-    div[data-testid="stHorizontalBlock"] {
-        flex-wrap:wrap !important;
-        gap:0.65rem !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        flex:1 1 180px !important;
-        min-width: min(180px, 100%) !important;
-    }
-}
-@media (max-width: 480px) {
-    [data-testid="stMetric"] {
-        padding:12px 13px !important;
-    }
-    [data-testid="stMetricValue"] {
-        font-size:1.15rem !important;
-    }
-}
-[data-testid="stMetricDelta"] { color:#d6ad55 !important; }
-.stButton>button { border:1px solid rgba(214,173,85,.55); border-radius:11px; background:linear-gradient(110deg,#b88b35,#e6c574); color:#11151d; font-weight:800; min-height:2.7rem; }
-.stButton>button:hover { border-color:#f4d58a; color:#080b12; box-shadow:0 0 18px rgba(214,173,85,.25); }
-[data-testid="stDataFrame"], [data-testid="stTable"] { border:1px solid rgba(214,173,85,.18); border-radius:12px; overflow:hidden; }
+:root { --gold:#d6ad55; --gold2:#f4d58a; }
+html, body, [class*="css"] { font-family:Inter,sans-serif; }
+.stApp { background:radial-gradient(circle at 12% 0%,#20283a 0%,#0b101a 42%,#080b12 100%); color:#edf1f7; }
+.block-container { max-width:1550px; padding-top:1.25rem; padding-bottom:3rem; }
+[data-testid="stHeader"] { background:rgba(8,11,18,.78); }
+[data-testid="stSidebar"] { background:linear-gradient(180deg,#111827,#090d15); border-right:1px solid rgba(214,173,85,.25); }
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color:var(--gold2); }
+.hero { padding:25px 28px; border:1px solid rgba(214,173,85,.42); border-radius:20px; background:linear-gradient(115deg,rgba(214,173,85,.16),rgba(17,24,39,.94) 48%,rgba(10,14,22,.96)); margin-bottom:18px; }
+.hero-kicker { color:var(--gold2); font-size:.72rem; font-weight:800; letter-spacing:.22em; }
+.hero-title { color:#fff; font-size:clamp(1.65rem,3vw,2.55rem); font-weight:900; margin:7px 0; }
+.hero-sub { color:#aeb8c8; font-size:.92rem; }
+[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(214,173,85,.22); padding:14px 16px; border-radius:15px; }
+[data-testid="stMetricLabel"] { color:#aeb8c8 !important; }
+[data-testid="stMetricValue"] { color:#fff !important; font-weight:800 !important; white-space:normal !important; overflow-wrap:anywhere !important; }
+h2 { color:#f4d58a !important; } h3 { color:#e7c77f !important; }
+.stButton>button { border:1px solid rgba(214,173,85,.55); border-radius:11px; background:linear-gradient(110deg,#b88b35,#e6c574); color:#11151d; font-weight:800; min-height:2.65rem; }
+[data-testid="stDataFrame"],[data-testid="stTable"] { border:1px solid rgba(214,173,85,.18); border-radius:12px; }
 [data-testid="stExpander"] { border:1px solid rgba(214,173,85,.22); border-radius:13px; background:rgba(17,24,39,.55); }
 hr { border-color:rgba(214,173,85,.22) !important; }
-.stAlert { border-radius:13px; }
-small, .stCaption { color:#9ba8ba !important; }
+@media(max-width:900px){ div[data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;gap:.6rem!important;} div[data-testid="stHorizontalBlock"]>div[data-testid="column"]{flex:1 1 180px!important;min-width:min(180px,100%)!important;} }
 </style>
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
-  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V7</span></div>
-  <div class="hero-sub">SEPARATE GOLD & BTC DASHBOARDS · AI MARKET SCANNER</div>
+  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V8</span></div>
+  <div class="hero-sub">STRICT MULTI-TIMEFRAME ANALYSIS · RISK CONTROL · SIGNAL AUDIT</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("Separate XAU/USD and BTC/USD workspaces · Closed-candle analysis · BUY LIMIT / SELL LIMIT")
-st.caption("Gold and Bitcoin have separate analysis tabs. Technical score is not a win probability. Signals are suggestions only; verify prices and risk with your broker.")
+st.caption("Separate Gold and Bitcoin workspaces · Closed candles only · Limit-entry planning · No automatic trading")
+st.warning("A technical score is NOT a win probability. No system can guarantee 99% accuracy or profit. Verify every setup and test on a demo account.")
 
-# -------------------------- SETTINGS --------------------------
+# ------------------------------ CONFIG ------------------------------
 
 API_URL = "https://api.twelvedata.com/time_series"
 SYMBOLS = {"GOLD": "XAU/USD", "BTC": "BTC/USD"}
-INTERVALS = {
-    "5M": "5min",
-    "15M": "15min",
-    "1H": "1h",
-    "4H": "4h",
-}
-INTERVAL_DELTAS = {
+INTERVALS = {"5M": "5min", "15M": "15min", "1H": "1h", "4H": "4h"}
+DELTAS = {
     "5min": pd.Timedelta(minutes=5),
     "15min": pd.Timedelta(minutes=15),
     "1h": pd.Timedelta(hours=1),
@@ -110,12 +67,20 @@ INTERVAL_DELTAS = {
 }
 LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
+MAX_DAILY_SIGNALS = 3
 
 with st.sidebar:
     st.markdown("### 🇦🇫 AFG GOLD PRO")
-    st.caption("GOLD & BTC · SEPARATE ANALYSIS")
+    st.caption("V8 · STRICT QUALITY MODE")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
-    st.caption("Data: Twelve Data · Minimum technical score: 80/100 · Daily signal cap: 3")
+    st.divider()
+    st.markdown("**Risk settings**")
+    risk_pct = st.number_input("Risk per trade (%)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
+    account_size = st.number_input("Account balance (USD)", min_value=10.0, value=1000.0, step=100.0)
+    min_score = st.slider("Minimum technical score", 70, 100, 85)
+    st.caption("Higher filters mean fewer setups, not guaranteed higher win rate.")
+    st.divider()
+    st.caption("Data: Twelve Data · Max 3 new setups per Kabul day")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -123,518 +88,430 @@ except Exception:
     API_KEY = ""
 
 if not API_KEY:
-    st.error(
-        "API key not found. In Streamlit Settings → Secrets, "
-        "keep the TWELVE_DATA_API_KEY secret configured as before."
-    )
+    st.error("API key not found. Keep TWELVE_DATA_API_KEY configured in Streamlit Secrets. Do not paste your key into chat.")
     st.stop()
-
-
-# -------------------------- DATA --------------------------
-
-@st.cache_data(ttl=60, show_spinner=False)
-def get_candles(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "outputsize": 1000,
-        "apikey": api_key,
-        "timezone": "UTC",
-        "format": "JSON",
-    }
-    response = requests.get(API_URL, params=params, timeout=TIMEOUT)
-    response.raise_for_status()
-    payload = response.json()
-
-    if "values" not in payload:
-        message = payload.get("message") or payload.get("code") or str(payload)
-        raise ValueError(f"Twelve Data: {message}")
-
-    df = pd.DataFrame(payload["values"])
-    required = ["datetime", "open", "high", "low", "close"]
-    if any(col not in df.columns for col in required):
-        raise ValueError("The received data has an invalid structure.")
-
-    for col in ["open", "high", "low", "close"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
-    df = df.dropna(subset=required).sort_values("datetime").reset_index(drop=True)
-
-    # Twelve Data timestamps candle openings. Keep only candles whose full
-    # interval has elapsed, with a small safety buffer for delayed updates.
-    interval_delta = INTERVAL_DELTAS[interval]
-    closed_before = pd.Timestamp.now(tz="UTC") - pd.Timedelta(seconds=2)
-    df = df[df["datetime"] + interval_delta <= closed_before].reset_index(drop=True)
-
-    if len(df) < 210:
-        raise ValueError(
-            f"Not enough fully closed candles: {len(df)}; at least 210 are required."
-        )
-
-    return df
-
-
-# -------------------------- INDICATORS --------------------------
-
-def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.copy()
-
-    d["ema20"] = d["close"].ewm(span=20, adjust=False).mean()
-    d["ema50"] = d["close"].ewm(span=50, adjust=False).mean()
-    d["ema200"] = d["close"].ewm(span=200, adjust=False).mean()
-
-    delta = d["close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
-    avg_loss = loss.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    d["rsi"] = 100 - (100 / (1 + rs))
-    d["rsi"] = d["rsi"].fillna(50)
-
-    fast = d["close"].ewm(span=12, adjust=False).mean()
-    slow = d["close"].ewm(span=26, adjust=False).mean()
-    d["macd"] = fast - slow
-    d["macd_signal"] = d["macd"].ewm(span=9, adjust=False).mean()
-    d["macd_hist"] = d["macd"] - d["macd_signal"]
-
-    prev_close = d["close"].shift(1)
-    tr = pd.concat([
-        d["high"] - d["low"],
-        (d["high"] - prev_close).abs(),
-        (d["low"] - prev_close).abs()
-    ], axis=1).max(axis=1)
-    d["atr"] = tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
-
-    up_move = d["high"].diff()
-    down_move = -d["low"].diff()
-    plus_dm = pd.Series(
-        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0),
-        index=d.index
-    )
-    minus_dm = pd.Series(
-        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0),
-        index=d.index
-    )
-    atr_safe = d["atr"].replace(0, np.nan)
-    plus_di = 100 * plus_dm.ewm(alpha=1/14, adjust=False).mean() / atr_safe
-    minus_di = 100 * minus_dm.ewm(alpha=1/14, adjust=False).mean() / atr_safe
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-    d["plus_di"] = plus_di.fillna(0)
-    d["minus_di"] = minus_di.fillna(0)
-    d["adx"] = dx.ewm(alpha=1/14, adjust=False, min_periods=14).mean().fillna(0)
-
-    return d
-
-
-def trend_of(row) -> str:
-    if row["close"] > row["ema50"] and row["ema50"] > row["ema200"]:
-        return "BULLISH"
-    if row["close"] < row["ema50"] and row["ema50"] < row["ema200"]:
-        return "BEARISH"
-    return "MIXED"
-
-
-def analyze_signal(data: dict, sl_multiplier: float, adx_floor: int, confidence_floor: int):
-    # Higher timeframe direction filter: 4H + 1H must agree.
-    r5 = data["5M"].iloc[-1]
-    r15 = data["15M"].iloc[-1]
-    r1h = data["1H"].iloc[-1]
-    r4h = data["4H"].iloc[-1]
-
-    trend_1h = trend_of(r1h)
-    trend_4h = trend_of(r4h)
-    trend_15m = trend_of(r15)
-
-    buy_score = 0
-    sell_score = 0
-
-    # Higher timeframe agreement
-    if trend_4h == "BULLISH": buy_score += 20
-    if trend_1h == "BULLISH": buy_score += 20
-    if trend_4h == "BEARISH": sell_score += 20
-    if trend_1h == "BEARISH": sell_score += 20
-
-    # 15m setup
-    if r15["close"] > r15["ema20"]: buy_score += 10
-    if r15["ema20"] > r15["ema50"]: buy_score += 10
-    if r15["close"] < r15["ema20"]: sell_score += 10
-    if r15["ema20"] < r15["ema50"]: sell_score += 10
-
-    if 50 < r15["rsi"] < 68: buy_score += 10
-    if 32 < r15["rsi"] < 50: sell_score += 10
-    if r15["macd_hist"] > 0: buy_score += 10
-    if r15["macd_hist"] < 0: sell_score += 10
-    if r15["plus_di"] > r15["minus_di"]: buy_score += 10
-    if r15["minus_di"] > r15["plus_di"]: sell_score += 10
-
-    # 5m confirmation, deliberately lower weight
-    if r5["close"] > r5["ema20"] and r5["macd_hist"] > 0: buy_score += 10
-    if r5["close"] < r5["ema20"] and r5["macd_hist"] < 0: sell_score += 10
-
-    # Pullback + candle confirmation on 15M.
-    # A valid pullback must approach EMA20 within 0.35 ATR during the last
-    # six candles, then the latest candle must close back in the trend direction.
-    recent = data["15M"].tail(6).copy()
-    atr_now = float(r15["atr"]) if np.isfinite(r15["atr"]) else 0.0
-    tolerance = max(atr_now * 0.35, 0.0)
-
-    buy_pullback = False
-    sell_pullback = False
-    bullish_candle = False
-    bearish_candle = False
-
-    if len(recent) >= 2 and atr_now > 0:
-        buy_touch = (
-            (recent["low"] <= recent["ema20"] + tolerance)
-            & (recent["low"] >= recent["ema20"] - tolerance * 1.5)
-        ).any()
-        sell_touch = (
-            (recent["high"] >= recent["ema20"] - tolerance)
-            & (recent["high"] <= recent["ema20"] + tolerance * 1.5)
-        ).any()
-
-        candle_range = max(float(r15["high"] - r15["low"]), 1e-9)
-        candle_body = abs(float(r15["close"] - r15["open"]))
-        bullish_candle = (
-            float(r15["close"]) > float(r15["open"])
-            and float(r15["close"]) > float(recent.iloc[-2]["close"])
-            and (float(r15["high"]) - float(r15["close"])) / candle_range <= 0.40
-            and candle_body / candle_range >= 0.25
-        )
-        bearish_candle = (
-            float(r15["close"]) < float(r15["open"])
-            and float(r15["close"]) < float(recent.iloc[-2]["close"])
-            and (float(r15["close"]) - float(r15["low"])) / candle_range <= 0.40
-            and candle_body / candle_range >= 0.25
-        )
-
-        buy_pullback = bool(
-            buy_touch
-            and float(r15["close"]) > float(r15["ema20"])
-            and float(r15["ema20"]) > float(r15["ema50"])
-        )
-        sell_pullback = bool(
-            sell_touch
-            and float(r15["close"]) < float(r15["ema20"])
-            and float(r15["ema20"]) < float(r15["ema50"])
-        )
-
-    # ADX measures trend strength, not direction. A trade must also have
-    # momentum confirmation on 5M and directional structure on 15M.
-    adx_ok = float(r15["adx"]) >= adx_floor
-    five_min_buy_confirm = (
-        float(r5["close"]) > float(r5["ema20"])
-        and float(r5["macd_hist"]) > 0
-    )
-    five_min_sell_confirm = (
-        float(r5["close"]) < float(r5["ema20"])
-        and float(r5["macd_hist"]) < 0
-    )
-    buy_valid = (
-        trend_4h == "BULLISH"
-        and trend_1h == "BULLISH"
-        and trend_15m == "BULLISH"
-        and 50 < float(r15["rsi"]) < 68
-        and adx_ok
-        and buy_pullback
-        and bullish_candle
-        and five_min_buy_confirm
-        and buy_score >= confidence_floor
-        and buy_score > sell_score
-    )
-    sell_valid = (
-        trend_4h == "BEARISH"
-        and trend_1h == "BEARISH"
-        and trend_15m == "BEARISH"
-        and 32 < float(r15["rsi"]) < 50
-        and adx_ok
-        and sell_pullback
-        and bearish_candle
-        and five_min_sell_confirm
-        and sell_score >= confidence_floor
-        and sell_score > buy_score
-    )
-
-    signal = "NO TRADE"
-    score = max(buy_score, sell_score)
-    direction = None
-
-    if buy_valid:
-        signal, direction = "BUY", "BUY"
-        score = buy_score
-    elif sell_valid:
-        signal, direction = "SELL", "SELL"
-        score = sell_score
-
-    current_price = float(r15["close"])
-    atr_value = float(r15["atr"])
-    entry = current_price
-    sl = tp1 = tp2 = tp3 = None
-    order_type = None
-    limit_distance_atr = None
-
-    # AI-calculated pending limit order: anchor the retracement near EMA20,
-    # then require the limit to remain on the correct side of market price.
-    if direction and np.isfinite(atr_value) and atr_value > 0:
-        recent_structure = data["15M"].tail(12)
-        ema20_value = float(r15["ema20"])
-        if direction == "BUY":
-            entry = ema20_value + 0.08 * atr_value
-            limit_distance_atr = (current_price - entry) / atr_value
-            swing_low = float(recent_structure["low"].min())
-            sl = min(swing_low - 0.15 * atr_value, entry - 0.35 * atr_value)
-            order_type = "BUY LIMIT"
-            risk = entry - sl
-            valid_limit = 0.03 <= limit_distance_atr <= 0.75
-            valid_risk = 0.35 * atr_value <= risk <= 2.0 * atr_value
-            if valid_limit and valid_risk:
-                tp1, tp2, tp3 = entry + risk, entry + 2 * risk, entry + 3 * risk
-            else:
-                direction = None
-        else:
-            entry = ema20_value - 0.08 * atr_value
-            limit_distance_atr = (entry - current_price) / atr_value
-            swing_high = float(recent_structure["high"].max())
-            sl = max(swing_high + 0.15 * atr_value, entry + 0.35 * atr_value)
-            order_type = "SELL LIMIT"
-            risk = sl - entry
-            valid_limit = 0.03 <= limit_distance_atr <= 0.75
-            valid_risk = 0.35 * atr_value <= risk <= 2.0 * atr_value
-            if valid_limit and valid_risk:
-                tp1, tp2, tp3 = entry - risk, entry - 2 * risk, entry - 3 * risk
-            else:
-                direction = None
-
-        if direction is None:
-            signal = "NO TRADE"
-            entry = current_price
-            sl = tp1 = tp2 = tp3 = None
-            order_type = None
-
-    return {
-        "signal": signal,
-        "score": int(min(100, score)),
-        "buy_score": buy_score,
-        "sell_score": sell_score,
-        "entry": entry,
-        "current_price": current_price,
-        "order_type": order_type,
-        "limit_distance_atr": limit_distance_atr,
-        "sl": sl,
-        "tp1": tp1,
-        "tp2": tp2,
-        "tp3": tp3,
-        "trend_4h": trend_4h,
-        "trend_1h": trend_1h,
-        "trend_15m": trend_15m,
-        "adx_ok": adx_ok,
-        "buy_pullback": buy_pullback,
-        "sell_pullback": sell_pullback,
-        "bullish_candle": bullish_candle,
-        "bearish_candle": bearish_candle,
-        "five_min_buy_confirm": five_min_buy_confirm,
-        "five_min_sell_confirm": five_min_sell_confirm,
-    }
-
-
-# -------------------------- MARKET SESSION --------------------------
-
-def market_session():
-    # Local exchange clocks automatically account for daylight-saving changes.
-    tokyo_hour = datetime.now(ZoneInfo("Asia/Tokyo")).hour
-    london_hour = datetime.now(ZoneInfo("Europe/London")).hour
-    new_york_hour = datetime.now(ZoneInfo("America/New_York")).hour
-
-    sessions = []
-    if 9 <= tokyo_hour < 18:
-        sessions.append("Asia")
-    if 8 <= london_hour < 17:
-        sessions.append("London")
-    if 8 <= new_york_hour < 17:
-        sessions.append("New York")
-    return " + ".join(sessions) if sessions else "Between major sessions"
-
-
-# -------------------------- LOAD & ANALYZE --------------------------
 
 if refresh:
     st.cache_data.clear()
 
-market = {}
-errors = []
-with st.spinner("Fetching Gold and Bitcoin market data..."):
+# ------------------------------ DATA ------------------------------
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_candles(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
+    params = {
+        "symbol": symbol, "interval": interval, "outputsize": 1000,
+        "apikey": api_key, "timezone": "UTC", "format": "JSON",
+    }
+    response = requests.get(API_URL, params=params, timeout=TIMEOUT)
+    response.raise_for_status()
+    payload = response.json()
+    if "values" not in payload:
+        msg = payload.get("message") or payload.get("code") or str(payload)
+        raise ValueError(f"Twelve Data: {msg}")
+    df = pd.DataFrame(payload["values"])
+    needed = ["datetime", "open", "high", "low", "close"]
+    if any(c not in df.columns for c in needed):
+        raise ValueError("Invalid candle data structure.")
+    for c in ["open", "high", "low", "close"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
+    df = df.dropna(subset=needed).sort_values("datetime").drop_duplicates("datetime").reset_index(drop=True)
+    # Exclude the currently-forming candle.
+    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(seconds=3)
+    df = df[df["datetime"] + DELTAS[interval] <= cutoff].reset_index(drop=True)
+    if len(df) < 220:
+        raise ValueError(f"Only {len(df)} closed candles received; at least 220 are required.")
+    return df
+
+# ------------------------------ INDICATORS ------------------------------
+
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    close = d["close"]
+    d["ema20"] = close.ewm(span=20, adjust=False).mean()
+    d["ema50"] = close.ewm(span=50, adjust=False).mean()
+    d["ema200"] = close.ewm(span=200, adjust=False).mean()
+
+    delta = close.diff()
+    gain, loss = delta.clip(lower=0), -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    d["rsi"] = (100 - 100 / (1 + rs)).fillna(50)
+
+    fast = close.ewm(span=12, adjust=False).mean()
+    slow = close.ewm(span=26, adjust=False).mean()
+    d["macd"] = fast - slow
+    d["macd_signal"] = d["macd"].ewm(span=9, adjust=False).mean()
+    d["macd_hist"] = d["macd"] - d["macd_signal"]
+
+    prev = close.shift(1)
+    tr = pd.concat([(d["high"]-d["low"]), (d["high"]-prev).abs(), (d["low"]-prev).abs()], axis=1).max(axis=1)
+    d["atr"] = tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+
+    up, down = d["high"].diff(), -d["low"].diff()
+    plus_dm = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=d.index)
+    minus_dm = pd.Series(np.where((down > up) & (down > 0), down, 0.0), index=d.index)
+    plus_di = 100 * plus_dm.ewm(alpha=1/14, adjust=False).mean() / d["atr"].replace(0, np.nan)
+    minus_di = 100 * minus_dm.ewm(alpha=1/14, adjust=False).mean() / d["atr"].replace(0, np.nan)
+    dx = 100 * (plus_di-minus_di).abs() / (plus_di+minus_di).replace(0, np.nan)
+    d["plus_di"] = plus_di.fillna(0)
+    d["minus_di"] = minus_di.fillna(0)
+    d["adx"] = dx.ewm(alpha=1/14, adjust=False, min_periods=14).mean().fillna(0)
+
+    d["atr_pct"] = (d["atr"] / close.replace(0, np.nan) * 100).replace([np.inf, -np.inf], np.nan)
+    return d
+
+def trend_of(row) -> str:
+    if row["close"] > row["ema50"] > row["ema200"]:
+        return "BULLISH"
+    if row["close"] < row["ema50"] < row["ema200"]:
+        return "BEARISH"
+    return "MIXED"
+
+def candle_quality(row, direction: str) -> bool:
+    rng = max(float(row["high"] - row["low"]), 1e-12)
+    body = abs(float(row["close"] - row["open"]))
+    body_ratio = body / rng
+    if direction == "BUY":
+        close_location = (float(row["high"]) - float(row["close"])) / rng
+        return float(row["close"]) > float(row["open"]) and body_ratio >= 0.30 and close_location <= 0.30
+    close_location = (float(row["close"]) - float(row["low"])) / rng
+    return float(row["close"]) < float(row["open"]) and body_ratio >= 0.30 and close_location <= 0.30
+
+def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
+    r5, r15, r1, r4 = (frames[k].iloc[-1] for k in ["5M", "15M", "1H", "4H"])
+    trends = {k: trend_of(frames[k].iloc[-1]) for k in ["5M", "15M", "1H", "4H"]}
+    buy_score = sell_score = 0
+    checks = {}
+
+    # Weighted confluence: 4H 25, 1H 25, 15M 30, 5M 10, trend strength 10.
+    buy_score += 25 if trends["4H"] == "BULLISH" else 0
+    sell_score += 25 if trends["4H"] == "BEARISH" else 0
+    buy_score += 25 if trends["1H"] == "BULLISH" else 0
+    sell_score += 25 if trends["1H"] == "BEARISH" else 0
+
+    buy15 = (r15["close"] > r15["ema20"] and r15["ema20"] > r15["ema50"])
+    sell15 = (r15["close"] < r15["ema20"] and r15["ema20"] < r15["ema50"])
+    buy_rsi = 50 < float(r15["rsi"]) < 67
+    sell_rsi = 33 < float(r15["rsi"]) < 50
+    buy_macd = float(r15["macd_hist"]) > 0
+    sell_macd = float(r15["macd_hist"]) < 0
+    buy_di = float(r15["plus_di"]) > float(r15["minus_di"])
+    sell_di = float(r15["minus_di"]) > float(r15["plus_di"])
+    buy_score += 8 if buy15 else 0
+    sell_score += 8 if sell15 else 0
+    buy_score += 7 if buy_rsi else 0
+    sell_score += 7 if sell_rsi else 0
+    buy_score += 7 if buy_macd else 0
+    sell_score += 7 if sell_macd else 0
+    buy_score += 8 if buy_di else 0
+    sell_score += 8 if sell_di else 0
+
+    buy5 = float(r5["close"]) > float(r5["ema20"]) and float(r5["macd_hist"]) > 0
+    sell5 = float(r5["close"]) < float(r5["ema20"]) and float(r5["macd_hist"]) < 0
+    buy_score += 10 if buy5 else 0
+    sell_score += 10 if sell5 else 0
+
+    adx_ok = float(r15["adx"]) >= adx_floor
+    buy_candle = candle_quality(r15, "BUY")
+    sell_candle = candle_quality(r15, "SELL")
+
+    recent = frames["15M"].tail(8)
+    atr = float(r15["atr"]) if np.isfinite(r15["atr"]) else 0.0
+    tolerance = atr * 0.30
+    buy_touch = bool(((recent["low"] <= recent["ema20"] + tolerance) & (recent["low"] >= recent["ema20"] - tolerance*1.5)).any()) if atr > 0 else False
+    sell_touch = bool(((recent["high"] >= recent["ema20"] - tolerance) & (recent["high"] <= recent["ema20"] + tolerance*1.5)).any()) if atr > 0 else False
+    buy_pullback = buy_touch and buy15 and float(r15["close"]) > float(recent.iloc[-2]["close"])
+    sell_pullback = sell_touch and sell15 and float(r15["close"]) < float(recent.iloc[-2]["close"])
+
+    checks["4H + 1H aligned"] = trends["4H"] == trends["1H"] and trends["4H"] in ("BULLISH", "BEARISH")
+    checks["15M structure"] = buy15 or sell15
+    checks["15M pullback"] = buy_pullback or sell_pullback
+    checks["15M candle confirmation"] = buy_candle or sell_candle
+    checks["5M momentum confirmation"] = buy5 or sell5
+    checks["ADX trend strength"] = adx_ok
+    checks["RSI not overextended"] = buy_rsi or sell_rsi
+    checks["MACD momentum"] = buy_macd or sell_macd
+
+    signal, direction = "NO TRADE", None
+    score = max(buy_score, sell_score)
+    if (trends["4H"] == trends["1H"] == trends["15M"] == "BULLISH"
+        and buy_pullback and buy_candle and buy5 and buy_rsi and buy_macd and buy_di
+        and adx_ok and buy_score >= score_floor and buy_score > sell_score):
+        signal, direction, score = "BUY", "BUY", buy_score
+    elif (trends["4H"] == trends["1H"] == trends["15M"] == "BEARISH"
+        and sell_pullback and sell_candle and sell5 and sell_rsi and sell_macd and sell_di
+        and adx_ok and sell_score >= score_floor and sell_score > buy_score):
+        signal, direction, score = "SELL", "SELL", sell_score
+
+    current = float(r15["close"])
+    entry = sl = tp1 = tp2 = tp3 = None
+    order_type = None
+    rr = None
+    risk_distance = None
+    entry_distance = None
+    rejection = []
+
+    if direction and atr > 0:
+        ema = float(r15["ema20"])
+        structure = frames["15M"].tail(12)
+        if direction == "BUY":
+            entry = ema + 0.05 * atr
+            entry_distance = (current - entry) / atr
+            swing = float(structure["low"].min())
+            sl = min(swing - 0.12*atr, entry - 0.50*atr)
+            risk_distance = entry - sl
+            order_type = "BUY LIMIT"
+            valid_entry = 0.05 <= entry_distance <= 0.65
+            valid_risk = 0.50*atr <= risk_distance <= 2.0*atr
+            if valid_entry and valid_risk:
+                tp1, tp2, tp3 = entry + risk_distance, entry + 2*risk_distance, entry + 3*risk_distance
+        else:
+            entry = ema - 0.05 * atr
+            entry_distance = (entry - current) / atr
+            swing = float(structure["high"].max())
+            sl = max(swing + 0.12*atr, entry + 0.50*atr)
+            risk_distance = sl - entry
+            order_type = "SELL LIMIT"
+            valid_entry = 0.05 <= entry_distance <= 0.65
+            valid_risk = 0.50*atr <= risk_distance <= 2.0*atr
+            if valid_entry and valid_risk:
+                tp1, tp2, tp3 = entry-risk_distance, entry-2*risk_distance, entry-3*risk_distance
+        if valid_entry and valid_risk and risk_distance > 0:
+            rr = 2.0
+        else:
+            rejection.append("Limit entry too far/too close or stop distance invalid")
+            signal, direction, order_type = "NO TRADE", None, None
+            entry = sl = tp1 = tp2 = tp3 = None
+
+    return {
+        "signal": signal, "direction": direction, "score": int(min(100, score)),
+        "buy_score": buy_score, "sell_score": sell_score, "order_type": order_type,
+        "current_price": current, "entry": entry, "sl": sl, "tp1": tp1, "tp2": tp2, "tp3": tp3,
+        "rr": rr, "risk_distance": risk_distance, "entry_distance_atr": entry_distance,
+        "trends": trends, "checks": checks, "adx": float(r15["adx"]), "rsi": float(r15["rsi"]),
+        "atr": atr, "rejection": rejection,
+    }
+
+# ------------------------------ SESSION / DAILY LIMIT ------------------------------
+
+def session_status():
+    now = datetime.now(timezone.utc)
+    tokyo = now.astimezone(ZoneInfo("Asia/Tokyo"))
+    london = now.astimezone(ZoneInfo("Europe/London"))
+    ny = now.astimezone(ZoneInfo("America/New_York"))
+    return [
+        ("ASIA", 9 <= tokyo.hour < 18, tokyo.strftime("%H:%M")),
+        ("LONDON", 8 <= london.hour < 17, london.strftime("%H:%M")),
+        ("NEW YORK", 8 <= ny.hour < 17, ny.strftime("%H:%M")),
+    ]
+
+# ------------------------------ LOAD DATA ------------------------------
+
+market, errors = {}, {}
+with st.spinner("Loading closed-candle data for Gold and Bitcoin..."):
     for asset, symbol in SYMBOLS.items():
-        asset_frames = {}
+        frames, asset_errors = {}, []
         for label, interval in INTERVALS.items():
             try:
-                raw = get_candles(symbol, interval, API_KEY)
-                asset_frames[label] = add_indicators(raw)
+                frames[label] = add_indicators(get_candles(symbol, interval, API_KEY))
             except Exception as exc:
-                errors.append(f"{asset} {label}: {exc}")
-        if len(asset_frames) == len(INTERVALS):
-            market[asset] = asset_frames
+                asset_errors.append(f"{label}: {exc}")
+        if len(frames) == len(INTERVALS):
+            market[asset] = frames
+        if asset_errors:
+            errors[asset] = asset_errors
 
-if errors:
-    st.error("Some market data could not be loaded:")
-    for err in errors:
-        st.write(f"- {err}")
-    st.info("Check Twelve Data symbol access, API limits and connection. Both assets require all four timeframes.")
+if not market:
+    st.error("No complete market dataset could be loaded. Check Twelve Data access, API limits, symbols and connection.")
+    for asset, items in errors.items():
+        st.write(f"**{asset}**")
+        for item in items:
+            st.write(f"- {item}")
     st.stop()
 
 results = {}
-for asset, asset_frames in market.items():
-    res = analyze_signal(asset_frames, 1.5, 20, 80)
-    last_time = asset_frames["15M"].iloc[-1]["datetime"].to_pydatetime()
-    latest_close = last_time + timedelta(minutes=15)
-    age = datetime.now(timezone.utc) - latest_close
+for asset, frames in market.items():
+    res = analyze_signal(frames, min_score, 20)
+    last15 = frames["15M"].iloc[-1]
+    last_close_time = last15["datetime"].to_pydatetime() + timedelta(minutes=15)
+    age = datetime.now(timezone.utc) - last_close_time
     stale = age > timedelta(minutes=45)
-    res["stale_data"] = stale
-    if stale:
-        res.update({"signal": "NO TRADE", "entry": None, "order_type": None,
-                    "sl": None, "tp1": None, "tp2": None, "tp3": None})
-    res["last_time"] = last_time
-    res["last_price"] = float(asset_frames["15M"].iloc[-1]["close"])
-    # A setup is valid for up to 45 minutes after the last closed 15M candle.
-    expiry = latest_close + timedelta(minutes=45)
+    expiry = last_close_time + timedelta(minutes=45)
     remaining = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds()))
-    res["valid_until"] = expiry.astimezone(LOCAL_TZ)
-    res["valid_remaining"] = remaining
-    res["expired"] = remaining <= 0
-    if res["expired"]:
-        res.update({"signal": "NO TRADE", "entry": None, "order_type": None,
-                    "sl": None, "tp1": None, "tp2": None, "tp3": None})
+    res.update({
+        "last_price": float(last15["close"]),
+        "last_candle_time": last15["datetime"].to_pydatetime(),
+        "stale": stale,
+        "expired": remaining <= 0,
+        "valid_until": expiry.astimezone(LOCAL_TZ),
+        "remaining": remaining,
+    })
+    if stale or remaining <= 0:
+        res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
+                    "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None})
     results[asset] = res
 
-# Shared daily cap: no more than 3 new Gold + BTC setups per Kabul day.
-MAX_DAILY_SIGNALS = 3
-today_key = datetime.now(LOCAL_TZ).date().isoformat()
-if st.session_state.get("daily_signal_date") != today_key:
-    st.session_state["daily_signal_date"] = today_key
-    st.session_state["daily_signal_keys"] = []
-signal_keys = st.session_state.get("daily_signal_keys", [])
+# Persistent daily signal count across Streamlit reruns (session state).
+today = datetime.now(LOCAL_TZ).date().isoformat()
+if st.session_state.get("daily_date") != today:
+    st.session_state["daily_date"] = today
+    st.session_state["daily_keys"] = []
+daily_keys = st.session_state.get("daily_keys", [])
 for asset, res in results.items():
     if res["signal"] in ("BUY", "SELL"):
-        key = f"{asset}|{res['last_time'].isoformat()}|{res['signal']}"
-        if key not in signal_keys:
-            if len(signal_keys) >= MAX_DAILY_SIGNALS:
-                res.update({"signal": "NO TRADE", "entry": None, "order_type": None,
-                            "sl": None, "tp1": None, "tp2": None, "tp3": None,
-                            "daily_limit_reached": True})
+        key = f"{asset}|{res['last_candle_time'].isoformat()}|{res['signal']}"
+        if key not in daily_keys:
+            if len(daily_keys) >= MAX_DAILY_SIGNALS:
+                res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
+                            "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None,
+                            "daily_cap":True})
             else:
-                signal_keys.append(key)
-                st.session_state["daily_signal_keys"] = signal_keys
-    res.setdefault("daily_limit_reached", False)
-daily_signal_count = len(st.session_state.get("daily_signal_keys", []))
+                daily_keys.append(key)
+                st.session_state["daily_keys"] = daily_keys
+    res.setdefault("daily_cap", False)
+daily_count = len(st.session_state.get("daily_keys", []))
 
-# -------------------------- TOP METRICS --------------------------
+# ------------------------------ TOP SUMMARY ------------------------------
 
-gold = results["GOLD"]
-btc = results["BTC"]
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("XAU/USD", f"{gold['last_price']:,.2f}")
-m2.metric("GOLD SIGNAL", gold["signal"])
-m3.metric("BTC/USD", f"{btc['last_price']:,.2f}")
-m4.metric("DAILY SIGNALS", f"{daily_signal_count}/{MAX_DAILY_SIGNALS}")
-
-# -------------------------- AI MARKET SCANNER --------------------------
 st.divider()
-st.subheader("🔎 AI MARKET SCANNER")
-st.caption("Scans Gold and Bitcoin together. Only setups scoring at least 80/100 and passing every entry filter can become signals.")
-scanner_rows = []
-for asset, title in [("GOLD", "XAU/USD"), ("BTC", "BTC/USD")]:
-    res = results[asset]
-    frames = market[asset]
-    trends = [trend_of(frames[t].iloc[-1]) for t in ["5M", "15M", "1H", "4H"]]
-    bullish_count = trends.count("BULLISH")
-    bearish_count = trends.count("BEARISH")
-    if bullish_count >= 3:
-        market_bias = "BULLISH"
-    elif bearish_count >= 3:
-        market_bias = "BEARISH"
-    else:
-        market_bias = "MIXED"
-    technical_score = max(res["buy_score"], res["sell_score"])
-    scanner_rows.append({
-        "Market": title,
-        "Price": round(res["last_price"], 2),
-        "Market Bias": market_bias,
-        "Best Score / 100": int(min(100, technical_score)),
-        "AI Result": res["order_type"] if res["signal"] in ("BUY", "SELL") else "NO TRADE",
-        "Status": "EXPIRED" if res.get("expired") else ("STALE DATA" if res.get("stale_data") else ("SETUP FOUND" if res["signal"] in ("BUY", "SELL") else "WAITING")),
+st.subheader("MARKET OVERVIEW")
+overview_cols = st.columns(4)
+if "GOLD" in results:
+    overview_cols[0].metric("XAU/USD", f"{results['GOLD']['last_price']:,.2f}")
+    overview_cols[1].metric("GOLD SIGNAL", results["GOLD"]["order_type"] or "NO TRADE")
+else:
+    overview_cols[0].metric("XAU/USD", "DATA ERROR")
+    overview_cols[1].metric("GOLD SIGNAL", "DISABLED")
+if "BTC" in results:
+    overview_cols[2].metric("BTC/USD", f"{results['BTC']['last_price']:,.2f}")
+    overview_cols[3].metric("BTC SIGNAL", results["BTC"]["order_type"] or "NO TRADE")
+else:
+    overview_cols[2].metric("BTC/USD", "DATA ERROR")
+    overview_cols[3].metric("BTC SIGNAL", "DISABLED")
+
+st.caption(f"Daily setup counter: {daily_count}/{MAX_DAILY_SIGNALS} · Kabul date: {today} · Counter is maintained for this app session.")
+
+# ------------------------------ SCANNER ------------------------------
+
+st.divider()
+st.subheader("🔎 V8 MARKET SCANNER")
+scanner = []
+for asset, title in [("GOLD","XAU/USD"),("BTC","BTC/USD")]:
+    if asset not in results:
+        scanner.append({"Market":title,"Price":"—","4H":"—","1H":"—","15M":"—","5M":"—","Score":"—","Result":"DATA ERROR"})
+        continue
+    r = results[asset]
+    scanner.append({
+        "Market":title, "Price":round(r["last_price"],2),
+        "4H":r["trends"]["4H"], "1H":r["trends"]["1H"],
+        "15M":r["trends"]["15M"], "5M":r["trends"]["5M"],
+        "Score":f"{r['score']}/100",
+        "Result":r["order_type"] or "NO TRADE",
     })
-st.dataframe(pd.DataFrame(scanner_rows), use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(scanner), use_container_width=True, hide_index=True)
 
-# -------------------------- SEPARATE ASSET WORKSPACES --------------------------
+# ------------------------------ ASSET WORKSPACES ------------------------------
 
-gold_tab, btc_tab = st.tabs(["🥇 GOLD · XAU/USD", "₿ BITCOIN · BTC/USD"])
-
-for tab, asset, title in [
-    (gold_tab, "GOLD", "XAU/USD GOLD"),
-    (btc_tab, "BTC", "BTC/USD BITCOIN"),
-]:
+tabs = st.tabs(["🥇 GOLD · XAU/USD", "₿ BITCOIN · BTC/USD"])
+for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN · BTC/USD"]):
     with tab:
-        res = results[asset]
-        asset_frames = market[asset]
-        st.subheader(f"{title} ANALYSIS")
-        price_col, signal_col, score_col = st.columns(3)
-        price_col.metric(f"{title} PRICE", f"{res['last_price']:,.2f}")
-        signal_col.metric("SIGNAL", res["order_type"] if res["signal"] in ("BUY", "SELL") else "NO TRADE")
-        score_col.metric("TECHNICAL SCORE", f"{res['score']}/100")
+        st.subheader(title)
+        if asset not in results:
+            st.error("This asset is temporarily unavailable. The other market can still be analyzed.")
+            for e in errors.get(asset, []):
+                st.write(f"- {e}")
+            continue
 
-        if res["signal"] == "BUY":
-            st.success("BUY LIMIT setup calculated by the AI — pending until price reaches entry.")
-        elif res["signal"] == "SELL":
-            st.error("SELL LIMIT setup calculated by the AI — pending until price reaches entry.")
-        elif res.get("expired"):
-            st.warning("SIGNAL EXPIRED — the 45-minute validity window has ended. Wait for a fresh setup.")
-        elif res.get("stale_data"):
-            st.warning("STALE DATA — new signals are disabled until fresh market data arrives.")
-        elif res.get("daily_limit_reached"):
-            st.warning("DAILY LIMIT REACHED — maximum 3 combined Gold and BTC signals for today.")
+        r = results[asset]
+        c1,c2,c3,c4 = st.columns(4)
+        c1.metric("PRICE", f"{r['last_price']:,.2f}")
+        c2.metric("SIGNAL", r["order_type"] or "NO TRADE")
+        c3.metric("TECHNICAL SCORE", f"{r['score']}/100")
+        c4.metric("RISK / TRADE", f"{risk_pct:.1f}%")
+
+        if r["stale"]:
+            st.error("STALE DATA — new trades are disabled until fresh 15M data arrives.")
+        elif r["expired"]:
+            st.warning("SETUP WINDOW EXPIRED — wait for a new closed-candle setup.")
+        elif r["daily_cap"]:
+            st.warning("DAILY SIGNAL LIMIT REACHED.")
+        elif r["signal"] == "BUY":
+            st.success("BUY LIMIT candidate — pending setup only; no order is sent to your broker.")
+        elif r["signal"] == "SELL":
+            st.error("SELL LIMIT candidate — pending setup only; no order is sent to your broker.")
         else:
-            st.warning("NO TRADE — required conditions are not fully aligned.")
+            st.warning("NO TRADE — all strict confirmation conditions are not aligned.")
 
-        if res["signal"] != "NO TRADE":
-            st.info(f"{res['order_type']} · PENDING · Current price: {res['current_price']:,.2f}")
+        if r["signal"] in ("BUY","SELL") and r["entry"] is not None:
+            vals = [("LIMIT ENTRY",r["entry"]),("STOP LOSS",r["sl"]),("TAKE PROFIT 1",r["tp1"]),("TAKE PROFIT 2",r["tp2"]),("TAKE PROFIT 3",r["tp3"])]
             cols = st.columns(5)
-            values = [("LIMIT ENTRY", res["entry"]), ("STOP LOSS", res["sl"]),
-                      ("TAKE PROFIT 1", res["tp1"]), ("TAKE PROFIT 2", res["tp2"]),
-                      ("TAKE PROFIT 3", res["tp3"])]
-            for col, (label, value) in zip(cols, values):
-                col.metric(label, f"{value:,.2f}")
-            st.caption(f"Technical score: {res['score']}/100 (not win probability) · Signal valid until {res['valid_until'].strftime('%H:%M')} Kabul time · {res['valid_remaining']//60} min remaining")
+            for col,(label,value) in zip(cols,vals):
+                col.metric(label,f"{value:,.2f}")
+            risk_cash = account_size * risk_pct / 100
+            st.info(f"Illustrative risk budget: ${risk_cash:,.2f}. Price risk distance: {r['risk_distance']:.4f}. Position size depends on your broker's contract specifications, tick value and lot rules; do not infer lots from this screen.")
+            st.caption(f"Setup valid until {r['valid_until'].strftime('%Y-%m-%d %H:%M')} Kabul time · {r['remaining']//60} minutes remaining · Planned reward/risk to TP2: 2R.")
         else:
-            st.caption("Signal validity: Not applicable — no active setup.")
+            st.caption("No active entry, stop-loss or take-profit levels because the setup did not pass every filter.")
 
-        st.divider()
-        st.markdown("**TIMEFRAME ANALYSIS**")
-        rows = []
-        for label in ["5M", "15M", "1H", "4H"]:
-            r = asset_frames[label].iloc[-1]
-            rows.append({"Timeframe": label, "Price": round(float(r["close"]), 2),
-                         "Trend": trend_of(r), "RSI": round(float(r["rsi"]), 1),
-                         "ADX": round(float(r["adx"]), 1)})
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.markdown("**TIMEFRAME ALIGNMENT**")
+        tf_rows=[]
+        for tf in ["5M","15M","1H","4H"]:
+            x=market[asset][tf].iloc[-1]
+            tf_rows.append({
+                "Timeframe":tf, "Trend":trend_of(x),
+                "Close":round(float(x["close"]),4),
+                "EMA 20":round(float(x["ema20"]),4),
+                "EMA 50":round(float(x["ema50"]),4),
+                "EMA 200":round(float(x["ema200"]),4),
+                "RSI":round(float(x["rsi"]),1),
+                "ADX":round(float(x["adx"]),1),
+            })
+        st.dataframe(pd.DataFrame(tf_rows),use_container_width=True,hide_index=True)
 
-# -------------------------- TRADING SESSIONS --------------------------
+        with st.expander("Signal quality checklist"):
+            check_rows=[{"Condition":k,"Status":"PASS" if v else "NOT CONFIRMED"} for k,v in r["checks"].items()]
+            st.dataframe(pd.DataFrame(check_rows),use_container_width=True,hide_index=True)
+            st.caption(f"BUY score: {r['buy_score']}/100 · SELL score: {r['sell_score']}/100 · RSI: {r['rsi']:.1f} · ADX: {r['adx']:.1f}")
+            st.caption("A PASS checklist or high score is not a statistical probability of success.")
+
+# ------------------------------ RISK CALCULATOR ------------------------------
+
+st.divider()
+st.subheader("🛡️ POSITION RISK PLANNER")
+st.caption("Use this to estimate a cash risk budget. Contract size, pip/tick value and lot sizing differ by broker and instrument.")
+rc1,rc2,rc3=st.columns(3)
+rc1.metric("ACCOUNT BALANCE",f"${account_size:,.2f}")
+rc2.metric("RISK SETTING",f"{risk_pct:.2f}%")
+rc3.metric("MAX PLANNED LOSS",f"${account_size*risk_pct/100:,.2f}")
+st.caption("Do not use the cash risk figure as a lot-size instruction. Confirm contract specifications with your broker.")
+
+# ------------------------------ SESSIONS ------------------------------
 
 st.divider()
 st.subheader("🌍 TRADING SESSIONS")
-now_utc = datetime.now(timezone.utc)
-tokyo_now = now_utc.astimezone(ZoneInfo("Asia/Tokyo"))
-london_now = now_utc.astimezone(ZoneInfo("Europe/London"))
-ny_now = now_utc.astimezone(ZoneInfo("America/New_York"))
-session_states = [
-    ("ASIA", 9 <= tokyo_now.hour < 18, tokyo_now.strftime('%H:%M')),
-    ("LONDON", 8 <= london_now.hour < 17, london_now.strftime('%H:%M')),
-    ("NEW YORK", 8 <= ny_now.hour < 17, ny_now.strftime('%H:%M')),
-]
-sc = st.columns(3)
-for col, (name, active, clock) in zip(sc, session_states):
-    col.metric(name, "OPEN" if active else "CLOSED", f"Local exchange time {clock}")
+session_cols=st.columns(3)
+for col,(name,active,clock) in zip(session_cols,session_status()):
+    col.metric(name,"OPEN" if active else "CLOSED",f"Local exchange time {clock}")
 
-with st.expander("Scanner & signal rules"):
-    st.write("The scanner continuously evaluates the available closed candles for Gold and Bitcoin. A signal requires a technical score of at least 80/100 plus aligned 4H, 1H and 15M direction, a 15M pullback and candle confirmation, 5M momentum, ADX strength, and a valid limit-entry distance.")
-    st.caption("The score is a technical alignment score, not a probability of winning. Maximum 3 combined signals per Kabul day in this app session. Signals expire after 45 minutes; this is an app-side validity window, not a broker order expiry. This app does not place or cancel trades. Test on a demo account first.")
+# ------------------------------ DATA WARNINGS / AUDIT ------------------------------
+
+if errors:
+    with st.expander("Market data warnings"):
+        for asset, items in errors.items():
+            st.markdown(f"**{asset}**")
+            for item in items:
+                st.write(f"- {item}")
+
+with st.expander("V8 methodology, limits and safety"):
+    st.write("""
+    - Uses completed candles only; the current forming candle is excluded.
+    - Requires aligned 4H, 1H and 15M trends, a 15M EMA pullback and candle confirmation, 5M momentum, RSI and ADX filters.
+    - BUY LIMIT / SELL LIMIT levels are analytical estimates, not broker orders.
+    - Technical score measures rule alignment only. It is not a win rate, confidence probability or guarantee.
+    - The daily signal counter is held in Streamlit session state. A full app restart or a new session may reset it; it is not a durable account-wide trading lock.
+    - This version does not claim a verified 99% accuracy. Validate it with out-of-sample historical testing and a demo account, including fees, spread, slippage and missed limit fills.
+    - Position size is intentionally not calculated because broker contract specifications are not known.
+    """)
+st.caption("AFG AI GOLD PRO ELITE V8 · Decision-support software only · No trade execution")
