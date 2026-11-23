@@ -713,3 +713,86 @@ if st.button("آزمایش اتصال طلا"):
     except Exception as e:
         st.error(f"خطا در اتصال: {e}")
 
+
+# ===== AFG AI GOLD PRO - MULTI TIMEFRAME GOLD =====
+
+st.divider()
+st.subheader("📊 تحلیل چند تایم‌فریمی طلا")
+
+gold_timeframes = {
+    "1 دقیقه - Scalping": "1min",
+    "5 دقیقه - Scalping": "5min",
+    "15 دقیقه - Scalping": "15min",
+    "1 ساعت - Intraday": "1h",
+    "4 ساعت - Intraday": "4h"
+}
+
+selected_tf = st.selectbox(
+    "انتخاب تایم‌فریم طلا",
+    list(gold_timeframes.keys())
+)
+
+if st.button("دریافت کندل‌های طلا"):
+    try:
+        api_key = st.secrets["TWELVE_DATA_API_KEY"]
+
+        interval = gold_timeframes[selected_tf]
+
+        response = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": "XAU/USD",
+                "interval": interval,
+                "outputsize": 100,
+                "order": "asc",
+                "timezone": "UTC",
+                "apikey": api_key
+            },
+            timeout=25
+        )
+
+        data = response.json()
+
+        if "values" not in data:
+            st.error("دریافت اطلاعات ناموفق بود:")
+            st.write(data.get("message", data))
+
+        else:
+            gold_df = pd.DataFrame(data["values"])
+
+            for col in ["open", "high", "low", "close"]:
+                gold_df[col] = pd.to_numeric(
+                    gold_df[col], errors="coerce"
+                )
+
+            gold_df = gold_df.dropna(
+                subset=["open", "high", "low", "close"]
+            )
+
+            gold_df = gold_df.sort_values(
+                "datetime"
+            ).reset_index(drop=True)
+
+            if gold_df.empty:
+                st.warning("کندل معتبری دریافت نشد.")
+            else:
+                st.success(
+                    f"دریافت اطلاعات {selected_tf} موفق بود!"
+                )
+
+                st.metric(
+                    "آخرین قیمت بسته‌شدن کندل",
+                    f"${gold_df['close'].iloc[-1]:,.2f}"
+                )
+
+                st.line_chart(
+                    gold_df.set_index("datetime")["close"]
+                )
+
+                st.dataframe(
+                    gold_df.tail(10),
+                    use_container_width=True
+                )
+
+    except Exception as e:
+        st.error(f"خطا: {e}")
