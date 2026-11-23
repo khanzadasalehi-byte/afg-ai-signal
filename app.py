@@ -17,12 +17,50 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🇦🇫 AFG AI GOLD PRO ELITE")
-st.caption("Multi-timeframe XAU/USD analysis | Entry • Stop Loss • TP1 • TP2 • TP3")
+# -------------------------- ELITE VISUAL THEME --------------------------
 
-st.warning(
-    "This is an analytical and educational tool; signals do not guarantee profits. "
-    "Confidence is a technical model score, not a statistically validated probability of success."
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+:root { --gold: #d6ad55; --gold2: #f4d58a; --ink: #0a0e16; --panel: #111827; }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.stApp { background: radial-gradient(circle at 12% 0%, #20283a 0%, #0b101a 42%, #080b12 100%); color: #edf1f7; }
+.block-container { max-width: 1500px; padding-top: 1.4rem; padding-bottom: 3rem; }
+[data-testid="stHeader"] { background: rgba(8,11,18,.78); }
+[data-testid="stSidebar"] { background: linear-gradient(180deg,#111827,#090d15); border-right: 1px solid rgba(214,173,85,.25); }
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color: var(--gold2); }
+.hero { padding: 25px 28px; border: 1px solid rgba(214,173,85,.42); border-radius: 20px; background: linear-gradient(115deg,rgba(214,173,85,.16),rgba(17,24,39,.94) 48%,rgba(10,14,22,.96)); box-shadow: 0 14px 40px rgba(0,0,0,.28); margin-bottom: 18px; }
+.hero-kicker { color: var(--gold2); font-size: .72rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+.hero-title { color: #fff; font-size: clamp(1.65rem,3vw,2.55rem); line-height: 1.12; font-weight: 900; margin: 7px 0; }
+.hero-sub { color: #aeb8c8; font-size: .92rem; }
+.hero-chip { display:inline-block; border:1px solid rgba(244,213,138,.35); border-radius:999px; color:#f4d58a; padding:5px 11px; font-size:.72rem; margin:12px 6px 0 0; }
+h1,h2,h3 { letter-spacing: -.025em; }
+h2 { color: #f4d58a !important; }
+h3 { color: #e7c77f !important; }
+[data-testid="stMetric"] { background: linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(214,173,85,.22); padding:15px 17px; border-radius:15px; box-shadow:0 8px 24px rgba(0,0,0,.16); }
+[data-testid="stMetricLabel"] { color:#aeb8c8 !important; font-size:.78rem !important; }
+[data-testid="stMetricValue"] { color:#fff !important; font-weight:800 !important; }
+[data-testid="stMetricDelta"] { color:#d6ad55 !important; }
+.stButton>button { border:1px solid rgba(214,173,85,.55); border-radius:11px; background:linear-gradient(110deg,#b88b35,#e6c574); color:#11151d; font-weight:800; min-height:2.7rem; }
+.stButton>button:hover { border-color:#f4d58a; color:#080b12; box-shadow:0 0 18px rgba(214,173,85,.25); }
+[data-testid="stDataFrame"], [data-testid="stTable"] { border:1px solid rgba(214,173,85,.18); border-radius:12px; overflow:hidden; }
+[data-testid="stExpander"] { border:1px solid rgba(214,173,85,.22); border-radius:13px; background:rgba(17,24,39,.55); }
+hr { border-color:rgba(214,173,85,.22) !important; }
+.stAlert { border-radius:13px; }
+small, .stCaption { color:#9ba8ba !important; }
+</style>
+<div class="hero">
+  <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
+  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE</span></div>
+  <div class="hero-sub">Institutional-style XAU/USD technical dashboard · Multi-timeframe market intelligence</div>
+  <span class="hero-chip">LIVE MARKET DATA</span><span class="hero-chip">4 TIMEFRAMES</span><span class="hero-chip">RISK-FIRST SIGNALS</span>
+</div>
+""", unsafe_allow_html=True)
+
+st.caption("ENTRY  ·  STOP LOSS  ·  TAKE PROFIT  ·  HISTORICAL TESTING")
+st.info(
+    "Educational analysis only. Signals do not guarantee profits. The model score is a technical alignment score, "
+    "not a statistically validated probability of winning. Verify live broker prices and risk before trading."
 )
 
 # -------------------------- SETTINGS --------------------------
@@ -39,6 +77,9 @@ LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
 
 with st.sidebar:
+    st.markdown("### 🇦🇫 AFG ELITE")
+    st.caption("CONTROL CENTER · XAU/USD")
+    st.divider()
     st.header("Settings")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
     st.caption("The API key is read from Streamlit Secrets.")
@@ -48,6 +89,8 @@ with st.sidebar:
     min_adx = st.slider("Minimum ADX for Entry", 15, 35, 20, 1)
     min_confidence = st.slider("Minimum Signal Score", 55, 90, 70, 1)
     st.caption("These settings change the analysis rules only and do not guarantee results.")
+    st.divider()
+    st.caption("Daily signal cap: 3 maximum in this app session. The counter is not a permanent account-wide limit.")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -586,7 +629,7 @@ st.caption(f"Last 15M candle time: {local_time.strftime('%Y-%m-%d %H:%M')} Kabul
 # -------------------------- SIGNAL PANEL --------------------------
 
 st.divider()
-st.subheader("🎯 Main Signal & Trade Management")
+st.subheader("🎯 LIVE SIGNAL CENTER")
 
 if result["signal"] == "BUY":
     st.success("BUY signal — only after reviewing market conditions and your personal risk.")
@@ -622,7 +665,7 @@ else:
 # -------------------------- MULTI-TIMEFRAME TABLE --------------------------
 
 st.divider()
-st.subheader("📊 Multi-Timeframe Analysis")
+st.subheader("📊 MARKET STRUCTURE · MULTI-TIMEFRAME")
 
 rows = []
 for label in ["5M", "15M", "1H", "4H"]:
@@ -645,7 +688,7 @@ st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 # -------------------------- WHY SIGNAL --------------------------
 
-st.subheader("🔎 Why the System Made This Decision")
+st.subheader("🔎 SIGNAL DIAGNOSTICS · WHY THIS DECISION")
 why = [
     f"Trend 4H: {result['trend_4h']}",
     f"Trend 1H: {result['trend_1h']}",
@@ -664,7 +707,7 @@ for item in why:
 # -------------------------- BACKTEST DASHBOARD --------------------------
 
 st.divider()
-st.subheader("🧪 Historical Strategy Backtest")
+st.subheader("🧪 STRATEGY LAB · HISTORICAL BACKTEST")
 
 st.info(
     "The backtest runs on up to the latest 240 15-minute opportunities. "
@@ -748,7 +791,7 @@ else:
 
 # -------------------------- RECENT PRICE DATA --------------------------
 
-with st.expander("Show Latest 15-Minute Candles"):
+with st.expander("📈 Open Latest 15-Minute Candle Data"):
     view = frames["15M"][["datetime", "open", "high", "low", "close", "rsi", "adx"]].tail(12).copy()
     view["datetime"] = view["datetime"].dt.strftime("%Y-%m-%d %H:%M UTC")
     st.dataframe(view.sort_values("datetime", ascending=False), use_container_width=True, hide_index=True)
