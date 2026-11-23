@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 # ==========================================================
 
 st.set_page_config(
-    page_title="AFG AI GOLD PRO ELITE",
+    page_title="AFG AI GOLD PRO ELITE V7",
     page_icon="🇦🇫",
     layout="wide"
 )
@@ -84,13 +84,13 @@ small, .stCaption { color:#9ba8ba !important; }
 </style>
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
-  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE</span></div>
-  <div class="hero-sub">Automatic BUY LIMIT / SELL LIMIT · XAU/USD</div>
+  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V7</span></div>
+  <div class="hero-sub">SEPARATE GOLD & BTC DASHBOARDS · AI MARKET SCANNER</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("XAU/USD · Closed-candle analysis · BUY LIMIT / SELL LIMIT")
-st.caption("Technical score is not a win probability. Signals are suggestions only; verify prices and risk with your broker.")
+st.caption("Separate XAU/USD and BTC/USD workspaces · Closed-candle analysis · BUY LIMIT / SELL LIMIT")
+st.caption("Gold and Bitcoin have separate analysis tabs. Technical score is not a win probability. Signals are suggestions only; verify prices and risk with your broker.")
 
 # -------------------------- SETTINGS --------------------------
 
@@ -113,9 +113,9 @@ TIMEOUT = 25
 
 with st.sidebar:
     st.markdown("### 🇦🇫 AFG GOLD PRO")
-    st.caption("XAU/USD · LIMIT SIGNALS")
+    st.caption("GOLD & BTC · SEPARATE ANALYSIS")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
-    st.caption("Data: Twelve Data · Daily signal cap: 3")
+    st.caption("Data: Twelve Data · Minimum technical score: 80/100 · Daily signal cap: 3")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -485,7 +485,7 @@ if errors:
 
 results = {}
 for asset, asset_frames in market.items():
-    res = analyze_signal(asset_frames, 1.5, 20, 70)
+    res = analyze_signal(asset_frames, 1.5, 20, 80)
     last_time = asset_frames["15M"].iloc[-1]["datetime"].to_pydatetime()
     latest_close = last_time + timedelta(minutes=15)
     age = datetime.now(timezone.utc) - latest_close
@@ -501,6 +501,10 @@ for asset, asset_frames in market.items():
     remaining = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds()))
     res["valid_until"] = expiry.astimezone(LOCAL_TZ)
     res["valid_remaining"] = remaining
+    res["expired"] = remaining <= 0
+    if res["expired"]:
+        res.update({"signal": "NO TRADE", "entry": None, "order_type": None,
+                    "sl": None, "tp1": None, "tp2": None, "tp3": None})
     results[asset] = res
 
 # Shared daily cap: no more than 3 new Gold + BTC setups per Kabul day.
@@ -534,35 +538,85 @@ m2.metric("GOLD SIGNAL", gold["signal"])
 m3.metric("BTC/USD", f"{btc['last_price']:,.2f}")
 m4.metric("DAILY SIGNALS", f"{daily_signal_count}/{MAX_DAILY_SIGNALS}")
 
-# -------------------------- SIGNAL PANELS --------------------------
-
-for asset, title in [("GOLD", "XAU/USD GOLD"), ("BTC", "BTC/USD BITCOIN")]:
+# -------------------------- AI MARKET SCANNER --------------------------
+st.divider()
+st.subheader("🔎 AI MARKET SCANNER")
+st.caption("Scans Gold and Bitcoin together. Only setups scoring at least 80/100 and passing every entry filter can become signals.")
+scanner_rows = []
+for asset, title in [("GOLD", "XAU/USD"), ("BTC", "BTC/USD")]:
     res = results[asset]
-    asset_frames = market[asset]
-    st.divider()
-    st.subheader(f"🎯 {title} SIGNAL")
-    if res["signal"] == "BUY":
-        st.success("BUY LIMIT setup calculated by the AI — pending until price reaches entry.")
-    elif res["signal"] == "SELL":
-        st.error("SELL LIMIT setup calculated by the AI — pending until price reaches entry.")
-    elif res.get("stale_data"):
-        st.warning("STALE DATA — new signals are disabled until fresh market data arrives.")
-    elif res.get("daily_limit_reached"):
-        st.warning("DAILY LIMIT REACHED — maximum 3 combined Gold and BTC signals for today.")
+    frames = market[asset]
+    trends = [trend_of(frames[t].iloc[-1]) for t in ["5M", "15M", "1H", "4H"]]
+    bullish_count = trends.count("BULLISH")
+    bearish_count = trends.count("BEARISH")
+    if bullish_count >= 3:
+        market_bias = "BULLISH"
+    elif bearish_count >= 3:
+        market_bias = "BEARISH"
     else:
-        st.warning("NO TRADE — required conditions are not fully aligned.")
+        market_bias = "MIXED"
+    technical_score = max(res["buy_score"], res["sell_score"])
+    scanner_rows.append({
+        "Market": title,
+        "Price": round(res["last_price"], 2),
+        "Market Bias": market_bias,
+        "Best Score / 100": int(min(100, technical_score)),
+        "AI Result": res["order_type"] if res["signal"] in ("BUY", "SELL") else "NO TRADE",
+        "Status": "EXPIRED" if res.get("expired") else ("STALE DATA" if res.get("stale_data") else ("SETUP FOUND" if res["signal"] in ("BUY", "SELL") else "WAITING")),
+    })
+st.dataframe(pd.DataFrame(scanner_rows), use_container_width=True, hide_index=True)
 
-    if res["signal"] != "NO TRADE":
-        st.info(f"{res['order_type']} · PENDING · Current price: {res['current_price']:,.2f}")
-        cols = st.columns(5)
-        values = [("LIMIT ENTRY", res["entry"]), ("STOP LOSS", res["sl"]),
-                  ("TAKE PROFIT 1", res["tp1"]), ("TAKE PROFIT 2", res["tp2"]),
-                  ("TAKE PROFIT 3", res["tp3"])]
-        for col, (label, value) in zip(cols, values):
-            col.metric(label, f"{value:,.2f}")
-        st.caption(f"Technical score: {res['score']}% · Signal valid until {res['valid_until'].strftime('%H:%M')} Kabul time · {res['valid_remaining']//60} min remaining")
-    else:
-        st.caption("Signal validity: Not applicable — no active setup.")
+# -------------------------- SEPARATE ASSET WORKSPACES --------------------------
+
+gold_tab, btc_tab = st.tabs(["🥇 GOLD · XAU/USD", "₿ BITCOIN · BTC/USD"])
+
+for tab, asset, title in [
+    (gold_tab, "GOLD", "XAU/USD GOLD"),
+    (btc_tab, "BTC", "BTC/USD BITCOIN"),
+]:
+    with tab:
+        res = results[asset]
+        asset_frames = market[asset]
+        st.subheader(f"{title} ANALYSIS")
+        price_col, signal_col, score_col = st.columns(3)
+        price_col.metric(f"{title} PRICE", f"{res['last_price']:,.2f}")
+        signal_col.metric("SIGNAL", res["order_type"] if res["signal"] in ("BUY", "SELL") else "NO TRADE")
+        score_col.metric("TECHNICAL SCORE", f"{res['score']}/100")
+
+        if res["signal"] == "BUY":
+            st.success("BUY LIMIT setup calculated by the AI — pending until price reaches entry.")
+        elif res["signal"] == "SELL":
+            st.error("SELL LIMIT setup calculated by the AI — pending until price reaches entry.")
+        elif res.get("expired"):
+            st.warning("SIGNAL EXPIRED — the 45-minute validity window has ended. Wait for a fresh setup.")
+        elif res.get("stale_data"):
+            st.warning("STALE DATA — new signals are disabled until fresh market data arrives.")
+        elif res.get("daily_limit_reached"):
+            st.warning("DAILY LIMIT REACHED — maximum 3 combined Gold and BTC signals for today.")
+        else:
+            st.warning("NO TRADE — required conditions are not fully aligned.")
+
+        if res["signal"] != "NO TRADE":
+            st.info(f"{res['order_type']} · PENDING · Current price: {res['current_price']:,.2f}")
+            cols = st.columns(5)
+            values = [("LIMIT ENTRY", res["entry"]), ("STOP LOSS", res["sl"]),
+                      ("TAKE PROFIT 1", res["tp1"]), ("TAKE PROFIT 2", res["tp2"]),
+                      ("TAKE PROFIT 3", res["tp3"])]
+            for col, (label, value) in zip(cols, values):
+                col.metric(label, f"{value:,.2f}")
+            st.caption(f"Technical score: {res['score']}/100 (not win probability) · Signal valid until {res['valid_until'].strftime('%H:%M')} Kabul time · {res['valid_remaining']//60} min remaining")
+        else:
+            st.caption("Signal validity: Not applicable — no active setup.")
+
+        st.divider()
+        st.markdown("**TIMEFRAME ANALYSIS**")
+        rows = []
+        for label in ["5M", "15M", "1H", "4H"]:
+            r = asset_frames[label].iloc[-1]
+            rows.append({"Timeframe": label, "Price": round(float(r["close"]), 2),
+                         "Trend": trend_of(r), "RSI": round(float(r["rsi"]), 1),
+                         "ADX": round(float(r["adx"]), 1)})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 # -------------------------- TRADING SESSIONS --------------------------
 
@@ -581,20 +635,6 @@ sc = st.columns(3)
 for col, (name, active, clock) in zip(sc, session_states):
     col.metric(name, "OPEN" if active else "CLOSED", f"Local exchange time {clock}")
 
-# -------------------------- MARKET OVERVIEW --------------------------
-
-st.divider()
-st.subheader("📊 MARKET OVERVIEW")
-for asset, title in [("GOLD", "XAU/USD"), ("BTC", "BTC/USD")]:
-    st.markdown(f"**{title}**")
-    rows = []
-    for label in ["5M", "15M", "1H", "4H"]:
-        r = market[asset][label].iloc[-1]
-        rows.append({"Timeframe": label, "Price": round(float(r["close"]), 2),
-                     "Trend": trend_of(r), "RSI": round(float(r["rsi"]), 1),
-                     "ADX": round(float(r["adx"]), 1)})
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-with st.expander("How the signal is calculated"):
-    st.write("The system checks 4H and 1H trend direction, 15M trend and pullback, RSI, ADX, candle confirmation and 5M momentum. It only shows a limit setup when the entry is on the correct side of the current price and the stop distance is acceptable.")
-    st.caption("Maximum 3 combined Gold and BTC signals per Kabul day in this app session. The signal timer is a technical validity estimate, not a broker order expiry; verify all prices with your broker. This app does not place trades.")
+with st.expander("Scanner & signal rules"):
+    st.write("The scanner continuously evaluates the available closed candles for Gold and Bitcoin. A signal requires a technical score of at least 80/100 plus aligned 4H, 1H and 15M direction, a 15M pullback and candle confirmation, 5M momentum, ADX strength, and a valid limit-entry distance.")
+    st.caption("The score is a technical alignment score, not a probability of winning. Maximum 3 combined signals per Kabul day in this app session. Signals expire after 45 minutes; this is an app-side validity window, not a broker order expiry. This app does not place or cancel trades. Test on a demo account first.")
