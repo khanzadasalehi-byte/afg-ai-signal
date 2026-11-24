@@ -40,32 +40,6 @@ h2 { color:#f4d58a !important; } h3 { color:#e7c77f !important; }
 .stButton>button { border:1px solid rgba(214,173,85,.55); border-radius:11px; background:linear-gradient(110deg,#b88b35,#e6c574); color:#11151d; font-weight:800; min-height:2.65rem; }
 [data-testid="stDataFrame"],[data-testid="stTable"] { border:1px solid rgba(214,173,85,.18); border-radius:12px; }
 [data-testid="stExpander"] { border:1px solid rgba(214,173,85,.22); border-radius:13px; background:rgba(17,24,39,.55); }
-
-.signal-card { border:2px solid #a83d50; border-radius:20px; overflow:hidden; background:#0d0717; margin:10px 0 20px; box-shadow:0 8px 30px rgba(0,0,0,.28); }
-.signal-head { padding:24px 18px 20px; text-align:center; background:linear-gradient(180deg,#21090e,#160812); border-bottom:1px solid #35203e; }
-.signal-side { font-size:42px; font-weight:900; letter-spacing:5px; line-height:1.15; }
-.signal-sub { color:#b889a7; font-size:12px; letter-spacing:2px; margin-top:8px; }
-.signal-pill { display:inline-block; margin-top:16px; padding:10px 18px; border-radius:30px; border:1px solid #70502a; background:#21170d; color:#f1c76d; font-weight:800; font-size:12px; letter-spacing:1px; }
-.signal-status { margin:16px 0 0; padding:17px 12px; border:1px solid #267b4b; border-radius:15px; background:#0b1c16; color:#55d98a; font-weight:900; letter-spacing:2px; font-size:14px; }
-.signal-status.wait { border-color:#8d6332; background:#21180e; color:#e7bd68; }
-.signal-meta { display:flex; justify-content:space-between; gap:12px; padding:18px; background:#10091d; border-bottom:1px solid #30213b; color:#bca1d9; }
-.signal-meta strong { color:#54e28c; font-size:25px; display:block; }
-.signal-price { padding:16px 12px; text-align:center; border-bottom:1px solid #30213b; background:#10091a; }
-.signal-price .lbl { color:#a68abf; font-size:12px; letter-spacing:3px; font-weight:800; }
-.signal-price .num { color:#d4b5ff; font-size:23px; font-weight:800; margin-top:5px; }
-.signal-price.stop .num { color:#ff666d; }
-.signal-targets { padding:16px 14px; background:#0d0818; }
-.signal-target-title { text-align:center; color:#b99bd9; letter-spacing:2px; font-weight:800; margin:2px 0 14px; }
-.signal-target { padding:13px 12px; margin:10px 0; border-radius:14px; background:#10121e; border:1px solid #2d3040; border-left:5px solid #38ce81; }
-.signal-target-top { display:flex; justify-content:space-between; gap:8px; color:#65d99a; font-weight:800; font-size:13px; }
-.signal-target-top .rr { color:#b89bd6; }
-.signal-target-bar { height:8px; background:#2a1738; border-radius:20px; margin-top:12px; overflow:hidden; }
-.signal-target-bar span { display:block; height:8px; border-radius:20px; background:linear-gradient(90deg,#b87822,#f4b52e); }
-.signal-invalidation { display:flex; justify-content:space-between; gap:8px; padding:15px 18px; border-top:1px solid #30213b; color:#b99bd9; font-weight:800; letter-spacing:2px; }
-.signal-invalidation strong { color:#ff737a; font-size:20px; }
-.signal-muted { color:#9b88ae; font-size:12px; }
-@media(max-width:600px){ .signal-side{font-size:34px;} .signal-meta{padding:14px;} .signal-price .num{font-size:20px;} }
-
 hr { border-color:rgba(214,173,85,.22) !important; }
 @media(max-width:900px){ div[data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;gap:.6rem!important;} div[data-testid="stHorizontalBlock"]>div[data-testid="column"]{flex:1 1 180px!important;min-width:min(180px,100%)!important;} }
 </style>
@@ -76,7 +50,7 @@ hr { border-color:rgba(214,173,85,.22) !important; }
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("V11 PRICE ACTION · Separate SCALP and DAILY signal panels · Range-only signal block · Manual trading only")
+st.caption("V11 PRICE ACTION · Unified signal feed · SCALP / NORMAL labels · Range-only signal block · Manual trading only")
 st.warning("Technical scores are rule-alignment scores, NOT win probabilities. No system guarantees accuracy or profit. Verify every setup and test on a demo account.")
 
 API_URL = "https://api.twelvedata.com/time_series"
@@ -101,13 +75,9 @@ with st.sidebar:
     st.caption("V11 · PRICE ACTION ONLY")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
     st.divider()
-    st.markdown("**Risk settings**")
-    risk_pct = st.number_input("Risk per trade (%)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
-    account_size = st.number_input("Account balance (USD)", min_value=10.0, value=1000.0, step=100.0)
-    min_score = st.slider("Minimum price-action score", 40, 100, 50)
-    st.caption("Signal direction and qualification use price action only. RSI/ADX/EMA/MACD are shown for reference and do not decide signals.")
+    st.caption("Signal direction uses completed-candle price action. RSI/ADX/EMA/MACD are reference indicators only.")
     st.divider()
-    st.caption("Twelve Data · SCALP refresh every 5 minutes · DAILY signal tracking · Daily target: 5 valid setups across both markets")
+    st.caption("Twelve Data · Unified signal feed · SCALP and NORMAL setups are labeled on every signal")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -589,122 +559,42 @@ if not market:
             st.write(f"- {item}")
     st.stop()
 
-# Independent SCALP and DAILY signal streams with different qualification and expiry.
-scalp_results, daily_results = {}, {}
+# One unified signal stream. SCALP is labeled when 5M and 15M structure
+# agree with the trade direction; all other valid directional setups are NORMAL.
+results = {}
 for asset, frames in market.items():
-    scalp = analyze_signal(frames, max(40, min_score - 10))
-    daily = analyze_signal(frames, max(60, min_score + 10))
+    res = analyze_signal(frames, 45)
     now_utc = datetime.now(timezone.utc)
     last15 = frames["15M"].iloc[-1]
     last_close_time = last15["datetime"].to_pydatetime() + timedelta(minutes=15)
-    for res, validity in [(scalp, SCALP_VALIDITY_MINUTES), (daily, DAILY_VALIDITY_MINUTES)]:
-        expiry = now_utc + timedelta(minutes=validity)
-        age = now_utc - last_close_time
-        stale = age > timedelta(minutes=validity)
-        remaining = max(0, int((expiry - now_utc).total_seconds()))
-        res.update({
-            "last_price": float(last15["close"]),
-            "last_candle_time": last15["datetime"].to_pydatetime(),
-            "generated_at": now_utc, "stale": stale, "expired": remaining <= 0,
-            "valid_until": expiry.astimezone(LOCAL_TZ), "remaining": remaining,
-            "validity_minutes": validity,
-        })
-        if stale or remaining <= 0:
-            res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
-                        "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None})
-    scalp_results[asset] = scalp
-    daily_results[asset] = daily
-
-# Existing detailed diagnostics below refer to the DAILY stream.
-results = daily_results
-
-today = datetime.now(LOCAL_TZ).date().isoformat()
-if st.session_state.get("daily_date") != today:
-    st.session_state["daily_date"] = today
-    st.session_state["daily_keys"] = []
-daily_keys = st.session_state.get("daily_keys", [])
-for asset, res in daily_results.items():
-    if res["signal"] in ("STRONG BUY", "STRONG SELL", "EARLY BUY", "EARLY SELL"):
-        key = f"{asset}|{res['last_candle_time'].isoformat()}|{res['signal']}"
-        if key not in daily_keys:
-            if len(daily_keys) >= MAX_DAILY_SIGNALS:
-                res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
-                            "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None,
-                            "daily_cap":True})
-            else:
-                daily_keys.append(key)
-                st.session_state["daily_keys"] = daily_keys
-    res.setdefault("daily_cap", False)
-daily_count = len(st.session_state.get("daily_keys", []))
+    direction = res.get("direction")
+    wanted_bias = "BULLISH" if direction == "BUY" else "BEARISH"
+    scalp_aligned = bool(direction and
+        res["trends"].get("5M") == wanted_bias and
+        res["trends"].get("15M") == wanted_bias)
+    signal_type = "SCALP" if scalp_aligned else "NORMAL"
+    validity = SCALP_VALIDITY_MINUTES if signal_type == "SCALP" else DAILY_VALIDITY_MINUTES
+    expiry = now_utc + timedelta(minutes=validity)
+    age = now_utc - last_close_time
+    stale = age > timedelta(minutes=validity)
+    remaining = max(0, int((expiry - now_utc).total_seconds()))
+    res.update({
+        "signal_type": signal_type,
+        "last_price": float(last15["close"]),
+        "last_candle_time": last15["datetime"].to_pydatetime(),
+        "generated_at": now_utc, "stale": stale, "expired": remaining <= 0,
+        "valid_until": expiry.astimezone(LOCAL_TZ), "remaining": remaining,
+        "validity_minutes": validity, "daily_cap": False,
+    })
+    if stale or remaining <= 0:
+        res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
+                    "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None})
+    results[asset] = res
 
 if "approval_log" not in st.session_state:
     st.session_state["approval_log"] = []
 if "trade_journal" not in st.session_state:
     st.session_state["trade_journal"] = []
-
-
-def render_signal_card(asset: str, mode: str, res: dict, validity_label: str, daily_count: int = 0):
-    """Render a signal panel inspired by the user's reference screenshot."""
-    valid = res["signal"] in ("STRONG BUY", "STRONG SELL", "EARLY BUY", "EARLY SELL") and res.get("entry") is not None
-    side = "BUY" if valid and res["direction"] == "BUY" else "SELL" if valid else "NO TRADE"
-    color = "#4de18a" if side == "BUY" else "#ff626b" if side == "SELL" else "#e7bd68"
-    score = int(res.get("score", 0))
-    risk_label = "LOW RISK" if score >= 80 else "MEDIUM RISK" if score >= 60 else "HIGHER RISK"
-    status = "✓  SETUP CONFIRMED — REVIEW BEFORE ENTRY" if valid else "⏳  WAIT — NO VALID SETUP"
-    status_class = "" if valid else "wait"
-    generated = res.get("generated_at")
-    generated_txt = generated.astimezone(LOCAL_TZ).strftime("%I:%M %p") if generated else "—"
-    remaining = max(0, int(res.get("remaining", 0)))
-    mm, ss = divmod(remaining, 60)
-    market_name = "XAUUSD" if asset == "GOLD" else "BTCUSD"
-    entry = res.get("entry")
-    sl = res.get("sl")
-    targets = [res.get("tp1"), res.get("tp2"), res.get("tp3")]
-    rr = ["1:1.00", "1:2.00", "1:3.00"]
-    if valid:
-        target_html = ""
-        for idx, (tp, ratio) in enumerate(zip(targets, rr), 1):
-            if tp is None:
-                continue
-            target_html += f"""
-            <div class="signal-target">
-              <div class="signal-target-top"><span>🎯 TP{idx}</span><span class="rr">R:R {ratio}</span><span>{tp:,.2f}</span></div>
-              <div class="signal-muted" style="margin-top:9px">TARGET {idx} · PLANNED PRICE LEVEL · NOT A HISTORICAL HIT RATE</div>
-            </div>"""
-        entry_label = "ENTRY · LIMIT" if res.get("order_type") == "LIMIT" else "ENTRY · MARKET"
-        invalidation = f"{sl:,.2f}" if sl is not None else "—"
-        entry_html = f'<div class="signal-price"><div class="lbl">{entry_label}</div><div class="num">{entry:,.2f}</div></div>'
-        stop_html = f'<div class="signal-price stop"><div class="lbl">STOP LOSS</div><div class="num">{sl:,.2f}</div></div>'
-        target_section = f'<div class="signal-targets"><div class="signal-target-title">🎯 3-TARGET PROFIT PLAN</div>{target_html}</div>'
-    else:
-        entry_html = '<div class="signal-price"><div class="lbl">ENTRY</div><div class="num">WAIT FOR CONFIRMATION</div></div>'
-        stop_html = ""
-        target_section = '<div class="signal-targets"><div class="signal-target-title">NO TARGETS — SETUP NOT CONFIRMED</div><div class="signal-muted">The system does not invent entry, stop-loss or take-profit levels.</div></div>'
-        invalidation = "—"
-
-    session = res.get("smart_analysis", {}).get("session_name", "market structure")
-    html = f"""
-    <div class="signal-card" style="border-color:{color}">
-      <div class="signal-head">
-        <div class="signal-side" style="color:{color}">{side}</div>
-        <div class="signal-sub">{market_name} &nbsp;·&nbsp; {mode.upper()} &nbsp;·&nbsp; PRICE ACTION</div>
-        <div class="signal-pill">● {score}/100 &nbsp;—&nbsp; {risk_label}</div>
-        <div class="signal-sub">📊 {res.get("trends", {}).get("15M", "—")} &nbsp;·&nbsp; {session}</div>
-        <div class="signal-status {status_class}">{status}</div>
-      </div>
-      <div class="signal-meta">
-        <div><strong>{mm:02d}:{ss:02d}</strong><span class="signal-muted">VALID FOR · {validity_label}</span></div>
-        <div style="text-align:right"><span class="signal-muted">GENERATED</span><strong style="font-size:19px;color:#c9a9f1">{generated_txt}</strong><span class="signal-muted">KABUL TIME</span></div>
-      </div>
-      {entry_html}
-      {stop_html}
-      {target_section}
-      <div class="signal-invalidation"><span>INVALIDATION</span><strong>{invalidation}</strong></div>
-      <div style="padding:0 18px 14px;text-align:center" class="signal-muted">DAILY TARGET COUNT: {daily_count}/5 · SCORE IS NOT A WIN PROBABILITY</div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
 
 st.divider()
 st.subheader("MARKET OVERVIEW")
@@ -715,64 +605,61 @@ overview_cols = st.columns(4)
 for idx, (asset, symbol) in enumerate([("GOLD", "XAU/USD"), ("BTC", "BTC/USD")]):
     if asset in results:
         overview_cols[idx*2].metric(symbol, f"{results[asset]['last_price']:,.2f}")
-        overview_cols[idx*2+1].metric(f"{asset} DAILY SIGNAL", daily_results[asset]["signal"])
+        overview_cols[idx*2+1].metric(f"{asset} SIGNAL", f"{results[asset]['signal_type']} · {results[asset]['signal']}")
     else:
         overview_cols[idx*2].metric(symbol, "DATA ERROR")
         overview_cols[idx*2+1].metric(f"{asset} SIGNAL", "DISABLED")
-st.caption(f"DAILY valid-setup count: {daily_count} / {DAILY_SIGNAL_TARGET} target across GOLD + BTC · Kabul date: {today}. Target is not forced when the market is ranging or setups are invalid.")
 
 st.divider()
-st.subheader("⚡ SCALP SIGNALS")
-st.caption("Short-term signal cards · refresh every 5 minutes · each signal valid up to 45 minutes.")
-sc_cols = st.columns(2)
-for col, asset in zip(sc_cols, ["GOLD", "BTC"]):
+st.subheader("⚡ UNIFIED SIGNAL FEED")
+st.caption("یک پنل برای همه فرصت‌ها؛ نوع هر سیگنال SCALP یا NORMAL مشخص می‌شود. SCALP اعتبار ۴۵ دقیقه و NORMAL اعتبار ۴ ساعت دارد.")
+feed_cols = st.columns(2)
+for col, asset, label in zip(feed_cols, ["GOLD", "BTC"], ["GOLD · XAU/USD", "BITCOIN · BTC/USD"]):
     with col:
-        if asset in scalp_results:
-            render_signal_card(asset, "SCALP", scalp_results[asset], "45 MIN")
+        if asset not in results:
+            st.error(f"{label}: data unavailable")
         else:
-            st.error(f"{asset}: market data unavailable")
+            r = results[asset]
+            st.markdown(f"**{label}**")
+            st.metric("SIGNAL TYPE", r["signal_type"])
+            st.metric("SIGNAL", r["signal"])
+            if r["signal"] in ("STRONG BUY", "STRONG SELL", "EARLY BUY", "EARLY SELL") and r["entry"] is not None:
+                st.write(f'Entry: **{r["entry"]:,.2f}** · SL: **{r["sl"]:,.2f}**')
+                st.write(f'TP1: **{r["tp1"]:,.2f}** · TP2: **{r["tp2"]:,.2f}** · TP3: **{r["tp3"]:,.2f}**')
+                st.caption(f'Validity: {r["validity_minutes"]} minutes · Until {r["valid_until"].strftime("%H:%M")} Kabul time')
+            else:
+                st.info("NO TRADE — range market or no confirmed directional setup.")
 
-st.divider()
-st.subheader("📈 DAILY SIGNALS")
-st.caption("Separate higher-timeframe signal cards · stricter qualification · validity up to 4 hours.")
-dy_cols = st.columns(2)
-for col, asset in zip(dy_cols, ["GOLD", "BTC"]):
-    with col:
-        if asset in daily_results:
-            render_signal_card(asset, "DAILY", daily_results[asset], "4 HOURS", daily_count)
-        else:
-            st.error(f"{asset}: market data unavailable")
-
-st.subheader("🔎 DAILY PRICE ACTION DIAGNOSTICS")
+st.subheader("🔎 PRICE ACTION MARKET DIAGNOSTICS")
 scanner = []
 for asset, title in [("GOLD","XAU/USD"),("BTC","BTC/USD")]:
     if asset not in results:
-        scanner.append({"Market":title,"Price":"—","4H":"—","1H":"—","15M":"—","5M":"—","Score":"—","Signal":"DATA ERROR"})
+        scanner.append({"Market":title,"Price":"—","4H":"—","1H":"—","15M":"—","5M":"—","Type":"—","Signal":"DATA ERROR"})
         continue
     r = results[asset]
     scanner.append({
         "Market":title, "Price":round(r["last_price"],2),
         "4H":r["trends"]["4H"], "1H":r["trends"]["1H"],
         "15M":r["trends"]["15M"], "5M":r["trends"]["5M"],
-        "Score":f'{r["score"]}/100', "Signal":r["signal"],
+        "Type":r["signal_type"], "Signal":r["signal"],
     })
 st.dataframe(pd.DataFrame(scanner), use_container_width=True, hide_index=True)
 
 tabs = st.tabs(["🥇 GOLD · XAU/USD", "₿ BITCOIN · BTC/USD"])
 for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN · BTC/USD"]):
     with tab:
-        st.subheader(title + " · DAILY")
         if asset not in results:
+            st.subheader(title)
             st.error("This asset is temporarily unavailable.")
             for e in errors.get(asset, []):
                 st.write(f"- {e}")
             continue
         r = results[asset]
-        c1,c2,c3,c4 = st.columns(4)
+        st.subheader(title + " · " + r["signal_type"])
+        c1,c2,c3 = st.columns(3)
         c1.metric("PRICE", f'{r["last_price"]:,.2f}')
-        c2.metric("SIGNAL", r["signal"])
-        c3.metric("PRICE ACTION SCORE", f'{r["score"]}/100')
-        c4.metric("RISK / TRADE", f"{risk_pct:.1f}%")
+        c2.metric("SIGNAL TYPE", r["signal_type"])
+        c3.metric("SIGNAL", r["signal"])
 
         if r["stale"]:
             st.error("STALE DATA — new trades disabled until fresh 15M data arrives.")
@@ -797,8 +684,7 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
             cols = st.columns(5)
             for col,(label,value) in zip(cols,vals):
                 col.metric(label,f"{value:,.2f}")
-            risk_cash = account_size * risk_pct / 100
-            st.info(f'Illustrative risk budget: ${risk_cash:,.2f}. Price risk distance: {r["risk_distance"]:.4f}. Lot size is not calculated; confirm broker contract specifications.')
+            st.info(f'Price risk distance: {r["risk_distance"]:.4f}. Lot size and account risk are not calculated; use your broker risk controls.')
             issued_local = r["generated_at"].astimezone(LOCAL_TZ)
             st.caption(f'Calculated: {issued_local.strftime("%Y-%m-%d %H:%M:%S")} Kabul time · Valid until: {r["valid_until"].strftime("%Y-%m-%d %H:%M")} Kabul time · {r["remaining"]//60} minutes remaining · TP2 target: 2R.')
             if r["signal"].startswith("EARLY"):
@@ -808,14 +694,7 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
 
         st.markdown("### 🧠 ADVANCED PRICE ACTION ANALYSIS")
         smart = r["smart_analysis"]
-        smart_rows = [
-            {"Engine":"SMC","BUY":f'{smart["buy_smc"]}/30',"SELL":f'{smart["sell_smc"]}/30'},
-            {"Engine":"ICT","BUY":f'{smart["buy_ict"]}/25',"SELL":f'{smart["sell_ict"]}/25'},
-            {"Engine":"ADVANCED PRICE ACTION","BUY":f'{smart["buy_pa"]}/25',"SELL":f'{smart["sell_pa"]}/25'},
-            {"Engine":"TECHNICAL","BUY":f'{smart["buy_technical"]}/20',"SELL":f'{smart["sell_technical"]}/20'},
-            {"Engine":"TOTAL","BUY":f'{smart["buy_total"]}/100',"SELL":f'{smart["sell_total"]}/100'},
-        ]
-        st.dataframe(pd.DataFrame(smart_rows), use_container_width=True, hide_index=True)
+        st.caption("تحلیل ساختار بازار، نقدینگی، FVG و الگوهای کندلی؛ امتیاز یا فیصدی نمایش داده نمی‌شود.")
         st.caption(
             f'Liquidity sweep BUY: {"YES" if smart["buy_sweep"] else "NO"} · '
             f'Liquidity sweep SELL: {"YES" if smart["sell_sweep"] else "NO"} · '
@@ -869,17 +748,7 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
         with st.expander("Signal quality checklist"):
             check_rows=[{"Condition":k,"Status":"PASS" if v else "NOT CONFIRMED"} for k,v in r["checks"].items()]
             st.dataframe(pd.DataFrame(check_rows),use_container_width=True,hide_index=True)
-            st.caption(f'Legacy confirmation BUY: {r["buy_score"]}/100 · SELL: {r["sell_score"]}/100 · RSI: {r["rsi"]:.1f} · ADX: {r["adx"]:.1f}')
-            st.caption("Smart score is rule alignment, not a win probability.")
-
-st.divider()
-st.subheader("🛡️ POSITION RISK PLANNER")
-st.caption("Cash risk budget only. Contract size, tick value and lot rules differ by broker.")
-rc1,rc2,rc3=st.columns(3)
-rc1.metric("ACCOUNT BALANCE",f"${account_size:,.2f}")
-rc2.metric("RISK SETTING",f"{risk_pct:.2f}%")
-rc3.metric("MAX PLANNED LOSS",f"${account_size*risk_pct/100:,.2f}")
-st.caption("Do not use the cash risk figure as a lot-size instruction. Confirm JustMarkets contract specifications.")
+            st.caption(f'RSI: {r["rsi"]:.1f} · ADX: {r["adx"]:.1f} · Score is hidden from the dashboard.')
 
 st.divider()
 st.subheader("📝 MANUAL TRADE JOURNAL")
@@ -945,11 +814,11 @@ with st.expander("V11 methodology, limits and safety"):
     - These are mechanical approximations; discretionary SMC/ICT concepts such as inducement and CHoCH are not fully modeled.
     - STRONG signals require 4H, 1H and 15M trend alignment plus legacy confirmations and smart confluence.
     - EARLY signals require 1H and 15M alignment, legacy confirmations and smart confluence; they are blocked when 4H is explicitly opposite.
-    - SCALP signal validity is up to 45 minutes; DAILY signal validity is up to 4 hours. Stale data disables new trades.
-    - Dashboard refreshes every 5 minutes while the browser remains active; mobile sleep can delay it. No push notifications.
+    - Signal expiry is 45 minutes after calculation; stale 15M data also disables new trades.
+    - Dashboard refreshes every 45 minutes while the browser remains active; mobile sleep can delay it. No push notifications.
     - BUY LIMIT / SELL LIMIT levels are analytical estimates, not broker orders.
     - No economic calendar/news feed or automatic 10-minute pre-news alert is connected in this file.
-    - Technical score is not a win probability or guarantee.
+    - Internal qualification scores are not displayed and are not win probabilities or guarantees.
     - Approval and journal records are session-scoped and may reset after restart/new session; download CSV backups.
     - Daily signal counter is session-scoped and may reset after app restart/new session.
     - No automatic trade execution. Validate on demo with spread, fees, slippage and missed limit fills.
