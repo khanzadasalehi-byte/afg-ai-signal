@@ -31,13 +31,13 @@ html, body, [class*="css"] { font-family:Inter,sans-serif; }
 [data-testid="stHeader"] { background:rgba(8,11,18,.78); }
 [data-testid="stSidebar"] { background:linear-gradient(180deg,#111827,#090d15); border-right:1px solid rgba(57,198,179,.25); }
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color:var(--gold2); }
-.hero { padding:25px 28px; border:1px solid rgba(57,198,179,.42); border-radius:20px; background:linear-gradient(115deg,rgba(57,198,179,.16),rgba(17,24,39,.94) 48%,rgba(10,14,22,.96)); margin-bottom:18px; }
+.hero { padding:30px 30px; border:1px solid rgba(57,198,179,.42); border-radius:24px; background:linear-gradient(125deg,rgba(57,198,179,.23),rgba(17,24,39,.96) 52%,rgba(10,14,22,.98)); box-shadow:0 14px 40px rgba(0,0,0,.22); margin-bottom:18px; }
 .hero-kicker { color:var(--gold2); font-size:.72rem; font-weight:800; letter-spacing:.22em; }
 .hero-title { color:#fff; font-size:clamp(1.65rem,3vw,2.55rem); font-weight:900; margin:7px 0; }
 .hero-sub { color:#aeb8c8; font-size:.92rem; }
-[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(57,198,179,.22); padding:14px 16px; border-radius:15px; }
+[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(27,43,57,.98),rgba(10,18,29,.98)); border:1px solid rgba(57,198,179,.30); padding:18px 17px; border-radius:18px; box-shadow:0 8px 22px rgba(0,0,0,.16); }
 [data-testid="stMetricLabel"] { color:#aeb8c8 !important; }
-[data-testid="stMetricValue"] { color:#fff !important; font-weight:800 !important; white-space:normal !important; overflow-wrap:anywhere !important; }
+[data-testid="stMetricValue"] { color:#fff !important; font-weight:800 !important; font-size:clamp(.92rem,1.65vw,1.35rem) !important; white-space:nowrap !important; overflow:visible !important; text-overflow:clip !important; }
 h2 { color:#f4d58a !important; } h3 { color:#e7c77f !important; }
 .stButton>button { border:1px solid rgba(57,198,179,.55); border-radius:11px; background:linear-gradient(110deg,#238f84,#72e0d0); color:#11151d; font-weight:800; min-height:2.65rem; }
 [data-testid="stDataFrame"],[data-testid="stTable"] { border:1px solid rgba(214,173,85,.18); border-radius:12px; }
@@ -48,12 +48,12 @@ hr { border-color:rgba(57,198,179,.22) !important; }
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
   <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V12</span></div>
-  <div class="hero-sub">FAST MARKET SCAN · EARLY SIGNALS · MANUAL TRADING</div>
+  <div class="hero-sub">FAST SIGNAL CENTER · GOLD & BITCOIN · MANUAL TRADING</div>
 </div>
 """, unsafe_allow_html=True)
 
 st.caption("V12 FAST · Separate Gold and Bitcoin · 5-minute dashboard refresh · Signal validity: 45 minutes · Manual trading only")
-st.info("FAST SIGNAL mode prioritizes earlier opportunities. Scores are rule-alignment points, not win probabilities. Always verify Entry and SL before manual trading.")
+st.caption("FAST SIGNAL · فرصت‌یابی سریع · معاملات دستی")
 
 # ------------------------------ CONFIG ------------------------------
 
@@ -80,15 +80,11 @@ with st.sidebar:
     st.caption("V12 · FAST SIGNAL MODE")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
     st.divider()
-    st.markdown("**Risk settings**")
-    risk_pct = st.number_input("Risk per trade (%)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
-    account_size = st.number_input("Account balance (USD)", min_value=10.0, value=1000.0, step=100.0)
-    min_score = st.slider("Minimum signal score (FAST mode)", 25, 75, 30)
-    st.caption("FAST mode: earlier entries, flexible confirmations; only strongly compressed markets are blocked.")
-    st.markdown("**Signal engine weights**")
-    st.caption("Price Action 50% · SMC 25% · ICT 10% · CRT 10% · Technical 5%")
+    min_score = 30
+    st.markdown("**FAST SIGNAL ENGINE**")
+    st.caption("ورود سریع‌تر · تأییدهای انعطاف‌پذیر · حداقل امتیاز ۳۰")
     st.divider()
-    st.caption("Data: Twelve Data · Scan every 5 minutes while open · Max 8 new setups per Kabul day")
+    st.caption("Twelve Data · بررسی هر ۵ دقیقه هنگام باز بودن داشبورد · حداکثر ۸ سیگنال در روز")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -199,7 +195,7 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
     current = float(r15["close"])
     eps = max(atr * 1e-9, 1e-12)
 
-    # -------- PRICE ACTION (50%) --------
+    # -------- PRICE ACTION (100%) --------
     pa_buy = pa_sell = 0.0
     buy_candle = candle_quality(r15, "BUY")
     sell_candle = candle_quality(r15, "SELL")
@@ -329,7 +325,7 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
     tech_buy += 15 if (buy_ema and buy_vwap) else 0
     tech_sell += 15 if (sell_ema and sell_vwap) else 0
 
-    weights = {"Price Action": 0.50, "SMC": 0.25, "ICT": 0.10, "CRT": 0.10, "Technical": 0.05}
+    weights = {"Price Action": 1.00, "SMC": 0.00, "ICT": 0.00, "CRT": 0.00, "Technical": 0.00}
     buy_parts = {"Price Action":pa_buy, "SMC":smc_buy, "ICT":ict_buy, "CRT":crt_buy, "Technical":tech_buy}
     sell_parts = {"Price Action":pa_sell, "SMC":smc_sell, "ICT":ict_sell, "CRT":crt_sell, "Technical":tech_sell}
     buy_score = sum(buy_parts[k]*weights[k] for k in weights)
@@ -497,7 +493,7 @@ if "approval_log" not in st.session_state:
 # ------------------------------ TOP SUMMARY ------------------------------
 
 st.divider()
-st.subheader("MARKET OVERVIEW")
+st.subheader("⚡ LIVE MARKET CENTER")
 scan_now_local = datetime.now(LOCAL_TZ)
 next_scan_local = scan_now_local + timedelta(minutes=SCAN_INTERVAL_MINUTES)
 st.info(f"FAST AUTO SCAN: every {SCAN_INTERVAL_MINUTES} minutes while this dashboard is open · Last calculation: {scan_now_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Next scheduled refresh: about {next_scan_local.strftime('%H:%M')} Kabul time. Phone/browser sleep can delay refresh; this is not a push alert.")
@@ -515,33 +511,16 @@ else:
     overview_cols[2].metric("BTC/USD", "DATA ERROR")
     overview_cols[3].metric("BTC SIGNAL", "DISABLED")
 
-st.caption(f"Daily signal counter: {daily_count}/{MAX_DAILY_SIGNALS} · Kabul date: {today}")
+st.caption(f"TODAY’S SIGNALS: {daily_count} / {MAX_DAILY_SIGNALS} · KABUL DATE: {today}")
 
-# ------------------------------ SCANNER ------------------------------
-
-st.divider()
-st.subheader("⚡ V12 FAST MARKET SCANNER")
-scanner = []
-for asset, title in [("GOLD","XAU/USD"),("BTC","BTC/USD")]:
-    if asset not in results:
-        scanner.append({"Market":title,"Price":"—","4H":"—","1H":"—","15M":"—","5M":"—","Score":"—","Result":"DATA ERROR"})
-        continue
-    r = results[asset]
-    scanner.append({
-        "Market":title, "Price":round(r["last_price"],2),
-        "4H":r["trends"]["4H"], "1H":r["trends"]["1H"],
-        "15M":r["trends"]["15M"], "5M":r["trends"]["5M"],
-        "Score":f"{r['score']}/100",
-        "Result":r["order_type"] or "NO TRADE",
-    })
-st.dataframe(pd.DataFrame(scanner), use_container_width=True, hide_index=True)
+# ------------------------------ FAST SIGNAL WORKSPACES ------------------------------
 
 # ------------------------------ ASSET WORKSPACES ------------------------------
 
 tabs = st.tabs(["🥇 GOLD · XAU/USD", "₿ BITCOIN · BTC/USD"])
 for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN · BTC/USD"]):
     with tab:
-        st.subheader(title)
+        st.subheader("🥇 " + title if asset == "GOLD" else "₿ " + title)
         if asset not in results:
             st.error("This asset is temporarily unavailable. The other market can still be analyzed.")
             for e in errors.get(asset, []):
@@ -549,12 +528,11 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
             continue
 
         r = results[asset]
-        c1,c2,c3,c4 = st.columns(4)
-        c1.metric("PRICE", f"{r['last_price']:,.2f}")
         display_signal = ("EARLY " + r["order_type"]) if r["signal"] in ("BUY", "SELL") and r["score"] < 40 else (r["order_type"] or "NO TRADE")
-        c2.metric("SIGNAL", display_signal)
-        c3.metric("TECHNICAL SCORE", f"{r['score']}/100")
-        c4.metric("RISK / TRADE", f"{risk_pct:.1f}%")
+        head1, head2, head3 = st.columns([1.2, 1, 1])
+        head1.metric("LIVE PRICE", f"{r['last_price']:,.2f}")
+        head2.metric("CURRENT SIGNAL", display_signal)
+        head3.metric("SIGNAL SCORE", f"{r['score']} / 100")
 
         if r["stale"]:
             st.error("STALE DATA — new trades are disabled until fresh 15M data arrives.")
@@ -574,8 +552,7 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
             cols = st.columns(5)
             for col,(label,value) in zip(cols,vals):
                 col.metric(label,f"{value:,.2f}")
-            risk_cash = account_size * risk_pct / 100
-            st.info(f"Illustrative risk budget: ${risk_cash:,.2f}. Price risk distance: {r['risk_distance']:.4f}. Position size depends on your broker's contract specifications, tick value and lot rules; do not infer lots from this screen.")
+            st.caption(f"Price distance to stop loss: {r['risk_distance']:.4f}. حجم معامله را مطابق قوانین و موجودی حساب خود در MT5 تعیین کن.")
             issued_local = r["generated_at"].astimezone(LOCAL_TZ)
             st.caption(f"Signal calculated: {issued_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Valid until: {r['valid_until'].strftime('%Y-%m-%d %H:%M')} Kabul time · {r['remaining']//60} minutes remaining · Planned reward/risk to TP2: 2R.")
         else:
@@ -607,29 +584,6 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
         else:
             st.caption("Approval is disabled because there is no valid, unexpired signal.")
 
-        st.markdown("**TIMEFRAME ALIGNMENT**")
-        tf_rows=[]
-        for tf in ["5M","15M","1H","4H"]:
-            x=market[asset][tf].iloc[-1]
-            tf_rows.append({
-                "Timeframe":tf, "Trend":trend_of(x),
-                "Close":round(float(x["close"]),4),
-                "EMA 20":round(float(x["ema20"]),4),
-                "EMA 50":round(float(x["ema50"]),4),
-                "EMA 200":round(float(x["ema200"]),4),
-                "RSI":round(float(x["rsi"]),1),
-                "ADX":round(float(x["adx"]),1),
-            })
-        st.dataframe(pd.DataFrame(tf_rows),use_container_width=True,hide_index=True)
-
-        with st.expander("Signal quality checklist"):
-            check_rows=[{"Condition":k,"Status":"PASS" if v else "NOT CONFIRMED"} for k,v in r["checks"].items()]
-            st.dataframe(pd.DataFrame(check_rows),use_container_width=True,hide_index=True)
-            st.caption(f"BUY score: {r['buy_score']}/100 · SELL score: {r['sell_score']}/100 · RSI: {r['rsi']:.1f} · ADX: {r['adx']:.1f}")
-            st.caption(f"BUY components: {r['score_parts_buy']} · SELL components: {r['score_parts_sell']}")
-            st.caption(f"CRT/ICT/SMC/Price Action engine · Market state: {'CHOPPY/RANGE' if r['is_choppy'] else 'TRADEABLE'} · VWAP proxy: {r['vwap']:.4f}")
-            st.caption("A PASS checklist or high score is not a statistical probability of success.")
-
 # ------------------------------ DATA WARNINGS / AUDIT ------------------------------
 
 if errors:
@@ -644,7 +598,7 @@ with st.expander("V12 FAST methodology and safety"):
     - Uses completed candles only; the current forming candle is excluded.
     - Dashboard recalculates every 5 minutes while the browser session remains active; mobile background sleep or connection loss can delay refresh. This dashboard itself does not send push notifications.
     - A setup expires 45 minutes after the latest completed 15-minute candle close; expired or stale setups are disabled.
-    - FAST weighted engine: Price Action 50%, SMC 25%, ICT 10%, CRT 10%, Technical 5%; multi-timeframe trend alignment is blended into Price Action; no requirement for every timeframe or every method to agree.
+    - FAST engine: Price Action has 100% of the signal score; SMC, ICT, CRT and Technical are calculated as supporting context only and do not add score points. Multi-timeframe trend alignment is blended into Price Action; no requirement for every timeframe to agree.
     - Only strongly compressed conditions are blocked; ordinary low ADX or mixed timeframes do not automatically block a setup.
     - Supports MARKET candidates near EMA20 and LIMIT candidates with a wider pullback window.
     - BUY/SELL MARKET and LIMIT levels are analytical estimates, not broker orders.
