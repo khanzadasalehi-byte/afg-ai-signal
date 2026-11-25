@@ -7,12 +7,12 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================================
-# AFG AI GOLD PRO ELITE V13 - DUAL ENGINE
-# SMC 100% + PRICE ACTION 100% + INDEPENDENT BACKTESTS
+# AFG AI GOLD PRO ELITE V14 - FIVE INDEPENDENT ENGINES
+# PRICE ACTION + SMC + ICT + CRT + RTM (EACH 100%)
 # ==========================================================
 
 st.set_page_config(
-    page_title="AFG AI GOLD PRO ELITE V13 DUAL ENGINE",
+    page_title="AFG AI GOLD PRO ELITE V14 FIVE ENGINES",
     page_icon="🇦🇫",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -38,12 +38,12 @@ hr { border-color:rgba(57,198,179,.22) !important; }
 </style>
 <div class="hero">
  <div style="color:#a6f3e7;font-size:.75rem;font-weight:800;letter-spacing:.2em">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
- <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V13</span></div>
- <div style="color:#aeb8c8">DUAL STRATEGY CENTER · SMC 100% + PRICE ACTION 100% · MANUAL TRADING</div>
+ <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V14</span></div>
+ <div style="color:#aeb8c8">FIVE INDEPENDENT STRATEGY ENGINES · COMPARATIVE BACKTEST · MANUAL TRADING</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("هر موتور امتیازدهی مستقل ۱۰۰٪ دارد. بک‌تست هر موتور نیز جداگانه اجرا می‌شود.")
+st.caption("پنج موتور مستقل؛ هر موتور امتیازدهی ۱۰۰٪ و بک‌تست جداگانه برای مقایسه دارد.")
 API_URL = "https://api.twelvedata.com/time_series"
 SYMBOLS = {"GOLD": "XAU/USD", "BTC": "BTC/USD"}
 INTERVALS = {"5M": "5min", "15M": "15min", "1H": "1h", "4H": "4h"}
@@ -55,13 +55,13 @@ MIN_SCORE = 30
 SIGNAL_VALIDITY_MINUTES = 45
 MAX_DAILY_SIGNALS = 8
 
-st_autorefresh(interval=5 * 60 * 1000, key="v13_refresh")
+st_autorefresh(interval=5 * 60 * 1000, key="v14_refresh")
 
 with st.sidebar:
     st.markdown("### 🇦🇫 AFG GOLD PRO")
-    st.caption("V13 · TWO INDEPENDENT 100% ENGINES")
+    st.caption("V14 · FIVE INDEPENDENT 100% ENGINES")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
-    st.caption("SMC 100% و Price Action 100% جداگانه")
+    st.caption("PA · SMC · ICT · CRT · RTM — مستقل")
     st.caption("حداکثر ۸ سیگنال روزانه · اعتبار ۴۵ دقیقه")
 
 try:
@@ -216,6 +216,117 @@ def analyze_price_action(frames, score_floor=MIN_SCORE):
     return {"signal":side or "NO TRADE","score":int(max(buy,sell)),"buy_score":buy,"sell_score":sell,
             "engine":"PRICE ACTION 100%","atr":atr,**(levels or {})}
 
+
+
+def analyze_ict(frames, score_floor=MIN_SCORE):
+    """ICT-inspired proxy: liquidity raid, displacement, FVG and premium/discount."""
+    d = frames["15M"]
+    if len(d) < 220: return {"signal":"NO TRADE","score":0}
+    r, p = d.iloc[-1], d.iloc[-2]
+    atr = float(r.atr) if np.isfinite(r.atr) else 0.0
+    if atr <= 0: return {"signal":"NO TRADE","score":0}
+    pool = d.iloc[-21:-1]
+    prior_hi, prior_lo = float(pool.high.max()), float(pool.low.min())
+    sweep_b = float(r.low) < prior_lo and float(r.close) > prior_lo
+    sweep_s = float(r.high) > prior_hi and float(r.close) < prior_hi
+    body = abs(float(r.close-r.open))
+    displacement_b = r.close > r.open and body >= .65*atr and r.close > p.high
+    displacement_s = r.close < r.open and body >= .65*atr and r.close < p.low
+    fvg_b = float(r.low) > float(d.iloc[-3].high)
+    fvg_s = float(r.high) < float(d.iloc[-3].low)
+    dealing_mid = (float(pool.high.max()) + float(pool.low.min())) / 2
+    discount = float(r.close) < dealing_mid
+    premium = float(r.close) > dealing_mid
+    buy = (30 if sweep_b else 0)+(30 if displacement_b else 0)+(25 if fvg_b else 0)+(15 if discount else 0)
+    sell = (30 if sweep_s else 0)+(30 if displacement_s else 0)+(25 if fvg_s else 0)+(15 if premium else 0)
+    side = "BUY" if buy >= score_floor and buy > sell else "SELL" if sell >= score_floor and sell > buy else None
+    levels = make_levels(d, side, float(r.close)) if side else None
+    if not levels: side = None
+    return {"signal":side or "NO TRADE","score":int(max(buy,sell)),"buy_score":buy,
+            "sell_score":sell,"engine":"ICT 100%","atr":atr,**(levels or {})}
+
+
+def analyze_crt(frames, score_floor=MIN_SCORE):
+    """Candle Range Theory proxy using the last completed 4H range and 15m reclaim."""
+    d, h4 = frames["15M"], frames["4H"]
+    if len(d) < 220 or len(h4) < 3: return {"signal":"NO TRADE","score":0}
+    r = d.iloc[-1]
+    atr = float(r.atr) if np.isfinite(r.atr) else 0.0
+    if atr <= 0: return {"signal":"NO TRADE","score":0}
+    # Use the most recent completed 4H candle only; no future candles.
+    rng = h4.iloc[-1]
+    rh, rl = float(rng.high), float(rng.low)
+    mid = (rh+rl)/2
+    raid_low = float(r.low) < rl and float(r.close) > rl
+    raid_high = float(r.high) > rh and float(r.close) < rh
+    reclaim_b = raid_low and float(r.close) > mid
+    reclaim_s = raid_high and float(r.close) < mid
+    candle_b = candle_quality(r, "BUY")
+    candle_s = candle_quality(r, "SELL")
+    trend_b = float(r.close) > float(r.ema20)
+    trend_s = float(r.close) < float(r.ema20)
+    buy = (45 if reclaim_b else 0)+(25 if candle_b else 0)+(15 if trend_b else 0)+(15 if float(r.close)>mid else 0)
+    sell = (45 if reclaim_s else 0)+(25 if candle_s else 0)+(15 if trend_s else 0)+(15 if float(r.close)<mid else 0)
+    side = "BUY" if buy >= score_floor and buy > sell else "SELL" if sell >= score_floor and sell > buy else None
+    levels = make_levels(d, side, float(r.close)) if side else None
+    if not levels: side = None
+    return {"signal":side or "NO TRADE","score":int(max(buy,sell)),"buy_score":buy,
+            "sell_score":sell,"engine":"CRT 100%","atr":atr,**(levels or {})}
+
+
+def analyze_rtm(frames, score_floor=MIN_SCORE):
+    """RTM-inspired proxy: base/departure, return-to-zone and rejection."""
+    d = frames["15M"]
+    if len(d) < 220: return {"signal":"NO TRADE","score":0}
+    r = d.iloc[-1]
+    atr = float(r.atr) if np.isfinite(r.atr) else 0.0
+    if atr <= 0: return {"signal":"NO TRADE","score":0}
+    hist = d.iloc[-30:-2]
+    # Approximate demand/supply zones from compact-base candles before a strong departure.
+    ranges = (hist.high-hist.low).replace(0, np.nan)
+    compact = ranges <= ranges.rolling(5, min_periods=3).median()*0.75
+    demand_idx, supply_idx = [], []
+    for j in range(2, len(hist)-2):
+        base = hist.iloc[j-1:j+2]
+        base_range = float((base.high-base.low).mean())
+        if base_range > .55*atr: continue
+        after = hist.iloc[j+2]
+        before = hist.iloc[j-2]
+        if float(after.close-after.open) >= .8*atr and after.close > base.high.max():
+            demand_idx.append(j)
+        if float(after.open-after.close) >= .8*atr and after.close < base.low.min():
+            supply_idx.append(j)
+    demand_score = 0
+    supply_score = 0
+    if demand_idx:
+        z = hist.iloc[demand_idx[-1]-1:demand_idx[-1]+2]
+        zlo, zhi = float(z.low.min()), float(z.high.max())
+        touched = float(r.low) <= zhi and float(r.high) >= zlo
+        rejected = float(r.close) > float(r.open) and float(r.close) > (zlo+zhi)/2
+        demand_score = (45 if touched else 0)+(30 if rejected else 0)+(25 if r.close>r.ema20 else 0)
+    if supply_idx:
+        z = hist.iloc[supply_idx[-1]-1:supply_idx[-1]+2]
+        zlo, zhi = float(z.low.min()), float(z.high.max())
+        touched = float(r.high) >= zlo and float(r.low) <= zhi
+        rejected = float(r.close) < float(r.open) and float(r.close) < (zlo+zhi)/2
+        supply_score = (45 if touched else 0)+(30 if rejected else 0)+(25 if r.close<r.ema20 else 0)
+    side = "BUY" if demand_score >= score_floor and demand_score > supply_score else "SELL" if supply_score >= score_floor and supply_score > demand_score else None
+    levels = make_levels(d, side, float(r.close)) if side else None
+    if not levels: side = None
+    return {"signal":side or "NO TRADE","score":int(max(demand_score,supply_score)),
+            "buy_score":demand_score,"sell_score":supply_score,"engine":"RTM 100%",
+            "atr":atr,**(levels or {})}
+
+
+ENGINE_FUNCTIONS = {
+    "PRICE ACTION 100%": analyze_price_action,
+    "SMC 100%": analyze_smc,
+    "ICT 100%": analyze_ict,
+    "CRT 100%": analyze_crt,
+    "RTM 100%": analyze_rtm,
+}
+
+
 def load_live_market():
     market, errors = {}, {}
     for asset,symbol in SYMBOLS.items():
@@ -254,7 +365,7 @@ def run_backtest(symbol, days, engine_name, score_floor=MIN_SCORE):
             sliced[label]=eligible
         if not sliced:
             i+=1; continue
-        sig=analyze_smc(sliced,score_floor) if engine_name=="SMC 100%" else analyze_price_action(sliced,score_floor)
+        sig=ENGINE_FUNCTIONS[engine_name](sliced,score_floor)
         if sig.get("signal") not in ("BUY","SELL") or not sig.get("entry"):
             i+=1; continue
         side=sig["signal"]; entry=float(sig["entry"]); sl=float(sig["sl"])
@@ -293,13 +404,19 @@ def run_backtest(symbol, days, engine_name, score_floor=MIN_SCORE):
                        "نتیجه":outcome,"R":round(r_multiple,2)})
         # One position at a time per engine; skip bars until this trade exits.
         i=max(exit_index+1,fill_index+1)
-    if not trades: return pd.DataFrame(), {"trades":0,"wins":0,"losses":0,"win_rate":0.0,"net_r":0.0}
+    if not trades: return pd.DataFrame(), {"trades":0,"closed":0,"open":0,"wins":0,"losses":0,"win_rate":0.0,"net_r":0.0,"open_r":0.0}
     out=pd.DataFrame(trades)
-    wins=int(out["نتیجه"].str.startswith("WIN").sum())
-    losses=int(out["نتیجه"].str.startswith("LOSS").sum())
-    return out, {"trades":len(out),"wins":wins,"losses":losses,
-                 "win_rate":round(wins/len(out)*100,2),
-                 "net_r":round(float(out["R"].sum()),2)}
+    closed = out[out["نتیجه"] != "OPEN"]
+    open_count = int((out["نتیجه"] == "OPEN").sum())
+    wins = int(closed["نتیجه"].str.startswith("WIN").sum())
+    losses = int(closed["نتیجه"].str.startswith("LOSS").sum())
+    closed_count = len(closed)
+    win_rate = round(wins/closed_count*100,2) if closed_count else 0.0
+    realized_r = round(float(closed["R"].sum()),2) if closed_count else 0.0
+    open_r = round(float(out.loc[out["نتیجه"] == "OPEN","R"].sum()),2) if open_count else 0.0
+    return out, {"trades":len(out),"closed":closed_count,"open":open_count,
+                 "wins":wins,"losses":losses,"win_rate":win_rate,
+                 "net_r":realized_r,"open_r":open_r}
 
 # ---------------- LIVE DASHBOARD ----------------
 market, errors = load_live_market()
@@ -310,49 +427,53 @@ if not market:
         for x in items: st.write("- "+x)
     st.stop()
 
-st.subheader("⚡ LIVE MARKET CENTER")
+st.subheader("⚡ LIVE MARKET CENTER · پنج موتور مستقل")
 for asset,frames in market.items():
     st.markdown(f"### {'🥇 GOLD' if asset=='GOLD' else '₿ BITCOIN'} · {SYMBOLS[asset]}")
-    a,b,c=st.columns(3)
     last=float(frames["15M"].iloc[-1].close)
-    a.metric("LIVE PRICE",f"{last:,.2f}")
-    smc=analyze_smc(frames)
-    pa=analyze_price_action(frames)
-    b.metric("SMC 100%",smc.get("order_type",smc["signal"]) if smc["signal"]!="NO TRADE" else "NO TRADE")
-    c.metric("PRICE ACTION 100%",pa.get("order_type",pa["signal"]) if pa["signal"]!="NO TRADE" else "NO TRADE")
-    cols=st.columns(2)
-    for col,res,label in [(cols[0],smc,"SMC"),(cols[1],pa,"PRICE ACTION")]:
+    st.metric("قیمت آخرین کندل بسته‌شده 15M",f"{last:,.2f}")
+    cols=st.columns(5)
+    for col,(engine_name,engine_fn) in zip(cols,ENGINE_FUNCTIONS.items()):
+        res=engine_fn(frames)
         with col:
-            st.markdown(f"**{label} · امتیاز {res.get('score',0)}/100**")
+            st.markdown(f"**{engine_name}**")
+            st.metric("وضعیت",res.get("order_type",res["signal"]) if res["signal"]!="NO TRADE" else "NO TRADE")
+            st.metric("امتیاز",f"{res.get('score',0)}/100")
             if res["signal"] in ("BUY","SELL"):
-                x,y,z=st.columns(3)
-                x.metric("ENTRY",f"{res['entry']:,.2f}")
-                y.metric("SL",f"{res['sl']:,.2f}")
-                z.metric("TP3",f"{res['tp3']:,.2f}")
-                st.caption(f"TP1: {res['tp1']:,.2f} · TP2: {res['tp2']:,.2f}")
-                st.info("سیگنال تحلیلی است؛ ورود دستی و بررسی قیمت بروکر ضروری است.")
+                st.caption(f"Entry: {res['entry']:,.2f}")
+                st.caption(f"SL: {res['sl']:,.2f}")
+                st.caption(f"TP1: {res['tp1']:,.2f}")
+                st.caption(f"TP2: {res['tp2']:,.2f}")
+                st.caption(f"TP3: {res['tp3']:,.2f}")
             else:
-                st.caption("فعلاً سیگنال معتبر وجود ندارد.")
+                st.caption("در حال حاضر شرایط ورود این موتور کامل نیست.")
+    st.info("سیگنال‌ها صرفاً تحلیلی‌اند؛ اجرای دستی پس از بررسی قیمت بروکر و مدیریت ریسک انجام شود.")
     st.divider()
 
-# ---------------- INDEPENDENT BACKTEST AREA ----------------
-st.subheader("📊 BACKTEST LAB · بخش مستقل بک‌تست")
-st.warning("بک‌تست از داده تاریخی Twelve Data استفاده می‌کند. نتیجه گذشته تضمین سود آینده نیست.")
-with st.form("backtest_form"):
+# ---------------- FIVE-ENGINE COMPARATIVE BACKTEST ----------------
+st.subheader("📊 BACKTEST LAB · مقایسه پنج موتور")
+st.warning("بک‌تست بر اساس کندل‌های تاریخی Twelve Data است. نتایج گذشته تضمین عملکرد آینده نیستند.")
+with st.form("backtest_form_v14"):
     c1,c2,c3=st.columns(3)
     bt_asset=c1.selectbox("بازار",["GOLD · XAU/USD","BTC · BTC/USD"])
     bt_days=c2.selectbox("مدت آزمایش", [7,14,30], index=0, format_func=lambda x:f"{x} روز گذشته")
-    bt_engine=c3.selectbox("موتور",["هر دو موتور","SMC 100%","PRICE ACTION 100%"])
-    submitted=st.form_submit_button("▶ شروع بک‌تست",use_container_width=True)
+    bt_engine=c3.selectbox("موتورها",["هر پنج موتور","فقط Price Action","فقط SMC","فقط ICT","فقط CRT","فقط RTM"])
+    submitted=st.form_submit_button("▶ شروع مقایسه بک‌تست",use_container_width=True)
 
 if submitted:
     bt_symbol="XAU/USD" if bt_asset.startswith("GOLD") else "BTC/USD"
-    selected=["SMC 100%","PRICE ACTION 100%"] if bt_engine=="هر دو موتور" else [bt_engine]
+    engine_labels = {
+        "فقط Price Action":["PRICE ACTION 100%"],
+        "فقط SMC":["SMC 100%"],
+        "فقط ICT":["ICT 100%"],
+        "فقط CRT":["CRT 100%"],
+        "فقط RTM":["RTM 100%"],
+    }
+    selected=list(ENGINE_FUNCTIONS.keys()) if bt_engine=="هر پنج موتور" else engine_labels[bt_engine]
     all_results={}
     try:
-        with st.spinner("در حال دریافت کندل‌های تاریخی و اجرای آزمایش..."):
+        with st.spinner("در حال دریافت داده‌های تاریخی و اجرای پنج آزمایش مستقل..."):
             for eng in selected:
-                # The cached historical candles are reused between the two independent engines.
                 trades,stats=run_backtest(bt_symbol,bt_days,eng)
                 all_results[eng]=(trades,stats)
         st.session_state["bt_results"]=all_results
@@ -360,35 +481,54 @@ if submitted:
         st.session_state["bt_days"]=bt_days
     except Exception as exc:
         st.error(f"بک‌تست اجرا نشد: {exc}")
-        st.caption("اگر محدودیت پلن Twelve Data اجازه ۵۰۰۰ کندل ندهد یا تاریخ کافی موجود نباشد، نتیجه نمایش داده نمی‌شود.")
+        st.caption("اگر محدودیت پلن Twelve Data اجازه دریافت تاریخ کافی ندهد، نتیجه ساختگی نمایش داده نمی‌شود.")
 
 if "bt_results" in st.session_state:
     st.markdown(f"**نتایج آخرین اجرا: {st.session_state.get('bt_asset','')} · {st.session_state.get('bt_days',7)} روز**")
+    summary=[]
     for eng,(trades,stats) in st.session_state["bt_results"].items():
-        st.markdown(f"### {eng}")
-        m=st.columns(5)
-        m[0].metric("معاملات",stats["trades"])
-        m[1].metric("برد",stats["wins"])
-        m[2].metric("باخت",stats["losses"])
-        m[3].metric("Win rate",f"{stats['win_rate']:.2f}%")
-        m[4].metric("خالص نتیجه",f"{stats['net_r']:.2f} R")
-        if trades.empty:
-            st.info("در این بازه معامله‌ای مطابق قوانین موتور پیدا نشد.")
-        else:
-            st.dataframe(trades,use_container_width=True,hide_index=True)
-            csv=trades.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(f"دانلود گزارش {eng} CSV",csv,file_name=f"backtest_{eng.replace(' ','_')}.csv",mime="text/csv",key=f"csv_{eng}")
+        summary.append({"موتور":eng,"کل معاملات":stats["trades"],"بسته‌شده":stats.get("closed",0),
+                        "باز":stats.get("open",0),"برد":stats["wins"],"باخت":stats["losses"],
+                        "درصد برد معاملات بسته‌شده":stats["win_rate"],"R خالص بسته‌شده":stats["net_r"],
+                        "R شناور معاملات باز":stats.get("open_r",0)})
+    summary_df=pd.DataFrame(summary)
+    st.markdown("### 🏆 جدول مقایسه")
+    st.dataframe(summary_df,use_container_width=True,hide_index=True)
+    if not summary_df.empty:
+        best=summary_df.sort_values(["R خالص بسته‌شده","درصد برد معاملات بسته‌شده"],ascending=False).iloc[0]
+        st.success(f"بر اساس R خالص بسته‌شده در همین بازه، نتیجه برتر: {best['موتور']} · {best['R خالص بسته‌شده']} R")
+    for eng,(trades,stats) in st.session_state["bt_results"].items():
+        with st.expander(f"{eng} · جزئیات معاملات",expanded=False):
+            m=st.columns(7)
+            m[0].metric("کل",stats["trades"])
+            m[1].metric("بسته",stats.get("closed",0))
+            m[2].metric("باز",stats.get("open",0))
+            m[3].metric("برد",stats["wins"])
+            m[4].metric("باخت",stats["losses"])
+            m[5].metric("Win rate",f"{stats['win_rate']:.2f}%")
+            m[6].metric("خالص R",f"{stats['net_r']:.2f}")
+            if trades.empty:
+                st.info("در این بازه معامله‌ای مطابق قوانین این موتور پیدا نشد.")
+            else:
+                st.dataframe(trades,use_container_width=True,hide_index=True)
+                csv=trades.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(f"دانلود گزارش {eng} CSV",csv,
+                    file_name=f"v14_backtest_{eng.replace(' ','_')}.csv",
+                    mime="text/csv",key=f"csv_v14_{eng}")
 
 with st.expander("روش محاسبه و محدودیت‌های بک‌تست"):
     st.write("""
-    - هر موتور مستقل است: SMC فقط امتیاز SMC/Liquidity را می‌سنجد؛ Price Action فقط الگوهای کندلی، شکست محدوده و روند را امتیاز می‌دهد.
+    - پنج موتور مستقل‌اند و امتیاز هرکدام جداگانه از ۱۰۰ محاسبه می‌شود: Price Action، SMC، ICT، CRT و RTM.
+    - این پیاده‌سازی‌ها مدل‌های الگوریتمی/تقریبی از مفاهیم هر روش‌اند؛ جایگزین تشخیص دستی نواحی نهادی یا داده واقعی سفارشات نیستند.
+    - ICT از Sweep، Displacement، FVG و Premium/Discount؛ CRT از محدوده آخرین کندل بسته‌شده 4H و Raid/Reclaim؛ RTM از الگوی تقریبی Base/Departure/Retest استفاده می‌کند.
     - سیگنال روی کندل ۱۵ دقیقه‌ای بسته‌شده ساخته می‌شود؛ کندل‌های تایم‌فریم‌های دیگر فقط تا زمان بسته‌شدن خودشان مجازند.
     - سفارش MARKET در بازشدن کندل بعدی فرض می‌شود؛ سفارش LIMIT فقط در سه کندل بعدی و در صورت لمس قیمت ورود پر می‌شود.
     - معامله هم‌زمان جدید برای همان موتور تا بسته‌شدن معامله قبلی آغاز نمی‌شود.
     - برخورد هم‌زمان SL و TP3 در یک کندل، محافظه‌کارانه ضرر محسوب می‌شود.
-    - خروج آزمایشی روی SL یا TP3 است؛ TP1 و TP2 فقط در گزارش زنده نمایش داده می‌شوند.
-    - کارمزد، اسپرد، اسلیپیج و اختلاف قیمت کارگزار لحاظ نشده‌اند؛ نتایج ناخالص و نظری‌اند.
+    - خروج آزمایشی روی SL یا TP3 است؛ TP1 و TP2 فقط در کارت زنده نمایش داده می‌شوند.
+    - معامله‌های OPEN از درصد برد معاملات بسته‌شده و R خالص تحقق‌یافته جدا هستند.
+    - کارمزد، اسپرد و اسلیپیج هنوز در محاسبه وارد نشده‌اند؛ نتایج ناخالص و نظری‌اند.
     - داده تاریخی محدود به دسترسی و سهمیه پلن Twelve Data است. اگر داده کافی نباشد، خطا نمایش داده می‌شود و نتیجه ساختگی تولید نمی‌شود.
     - امتیاز ۱۰۰ به معنی احتمال برد ۱۰۰٪ نیست. ابتدا روی حساب دمو و با هزینه‌های واقعی بررسی کن.
     """)
-st.caption("AFG AI GOLD PRO ELITE V13 · SMC 100% + PRICE ACTION 100% · Manual decision support only")
+st.caption("AFG AI GOLD PRO ELITE V14 · FIVE INDEPENDENT ENGINES · Manual decision support only")
