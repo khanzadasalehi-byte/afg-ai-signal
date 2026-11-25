@@ -7,13 +7,13 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================================
-# AFG AI GOLD PRO ELITE V11
-# 40-minute market refresh + time-limited manual signals
+# AFG AI GOLD PRO ELITE V12 FAST SIGNAL
+# 5-minute market refresh + faster, time-limited manual signals
 # Provider: Twelve Data | Signals are decision support only
 # ==========================================================
 
 st.set_page_config(
-    page_title="AFG AI GOLD PRO ELITE V11",
+    page_title="AFG AI GOLD PRO ELITE V12 FAST SIGNAL",
     page_icon="🇦🇫",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -24,36 +24,36 @@ st.set_page_config(
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-:root { --gold:#d6ad55; --gold2:#f4d58a; }
+:root { --gold:#39c6b3; --gold2:#a6f3e7; }
 html, body, [class*="css"] { font-family:Inter,sans-serif; }
 .stApp { background:radial-gradient(circle at 12% 0%,#20283a 0%,#0b101a 42%,#080b12 100%); color:#edf1f7; }
 .block-container { max-width:1550px; padding-top:1.25rem; padding-bottom:3rem; }
 [data-testid="stHeader"] { background:rgba(8,11,18,.78); }
-[data-testid="stSidebar"] { background:linear-gradient(180deg,#111827,#090d15); border-right:1px solid rgba(214,173,85,.25); }
+[data-testid="stSidebar"] { background:linear-gradient(180deg,#111827,#090d15); border-right:1px solid rgba(57,198,179,.25); }
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color:var(--gold2); }
-.hero { padding:25px 28px; border:1px solid rgba(214,173,85,.42); border-radius:20px; background:linear-gradient(115deg,rgba(214,173,85,.16),rgba(17,24,39,.94) 48%,rgba(10,14,22,.96)); margin-bottom:18px; }
+.hero { padding:25px 28px; border:1px solid rgba(57,198,179,.42); border-radius:20px; background:linear-gradient(115deg,rgba(57,198,179,.16),rgba(17,24,39,.94) 48%,rgba(10,14,22,.96)); margin-bottom:18px; }
 .hero-kicker { color:var(--gold2); font-size:.72rem; font-weight:800; letter-spacing:.22em; }
 .hero-title { color:#fff; font-size:clamp(1.65rem,3vw,2.55rem); font-weight:900; margin:7px 0; }
 .hero-sub { color:#aeb8c8; font-size:.92rem; }
-[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(214,173,85,.22); padding:14px 16px; border-radius:15px; }
+[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(25,34,50,.96),rgba(13,19,30,.96)); border:1px solid rgba(57,198,179,.22); padding:14px 16px; border-radius:15px; }
 [data-testid="stMetricLabel"] { color:#aeb8c8 !important; }
 [data-testid="stMetricValue"] { color:#fff !important; font-weight:800 !important; white-space:normal !important; overflow-wrap:anywhere !important; }
 h2 { color:#f4d58a !important; } h3 { color:#e7c77f !important; }
-.stButton>button { border:1px solid rgba(214,173,85,.55); border-radius:11px; background:linear-gradient(110deg,#b88b35,#e6c574); color:#11151d; font-weight:800; min-height:2.65rem; }
+.stButton>button { border:1px solid rgba(57,198,179,.55); border-radius:11px; background:linear-gradient(110deg,#238f84,#72e0d0); color:#11151d; font-weight:800; min-height:2.65rem; }
 [data-testid="stDataFrame"],[data-testid="stTable"] { border:1px solid rgba(214,173,85,.18); border-radius:12px; }
-[data-testid="stExpander"] { border:1px solid rgba(214,173,85,.22); border-radius:13px; background:rgba(17,24,39,.55); }
-hr { border-color:rgba(214,173,85,.22) !important; }
+[data-testid="stExpander"] { border:1px solid rgba(57,198,179,.22); border-radius:13px; background:rgba(17,24,39,.55); }
+hr { border-color:rgba(57,198,179,.22) !important; }
 @media(max-width:900px){ div[data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;gap:.6rem!important;} div[data-testid="stHorizontalBlock"]>div[data-testid="column"]{flex:1 1 180px!important;min-width:min(180px,100%)!important;} }
 </style>
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
-  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V11</span></div>
-  <div class="hero-sub">40-MINUTE MARKET SCAN · TIME-LIMITED SIGNALS · MANUAL TRADING</div>
+  <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V12</span></div>
+  <div class="hero-sub">FAST MARKET SCAN · EARLY SIGNALS · MANUAL TRADING</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("V11 · Separate Gold and Bitcoin · Automatic dashboard refresh every 40 minutes · Signal validity: 45 minutes · Manual trading only")
-st.warning("A weighted technical score is NOT a win probability. No system can guarantee 99% accuracy or profit. Verify every setup and test on a demo account.")
+st.caption("V12 FAST · Separate Gold and Bitcoin · 5-minute dashboard refresh · Signal validity: 45 minutes · Manual trading only")
+st.info("FAST SIGNAL mode prioritizes earlier opportunities. Scores are rule-alignment points, not win probabilities. Always verify Entry and SL before manual trading.")
 
 # ------------------------------ CONFIG ------------------------------
 
@@ -68,27 +68,27 @@ DELTAS = {
 }
 LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
-SCAN_INTERVAL_MINUTES = 40
+SCAN_INTERVAL_MINUTES = 5
 SIGNAL_VALIDITY_MINUTES = 45
-MAX_DAILY_SIGNALS = 5
+MAX_DAILY_SIGNALS = 8
 
 # Refresh the dashboard while it remains open in the browser. This is not a push notification.
-st_autorefresh(interval=SCAN_INTERVAL_MINUTES * 60 * 1000, key="afg_v11_40min_refresh")
+st_autorefresh(interval=SCAN_INTERVAL_MINUTES * 60 * 1000, key="afg_v12_5min_refresh")
 
 with st.sidebar:
     st.markdown("### 🇦🇫 AFG GOLD PRO")
-    st.caption("V11 · NORMAL SIGNAL MODE")
+    st.caption("V12 · FAST SIGNAL MODE")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
     st.divider()
     st.markdown("**Risk settings**")
     risk_pct = st.number_input("Risk per trade (%)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
     account_size = st.number_input("Account balance (USD)", min_value=10.0, value=1000.0, step=100.0)
-    min_score = st.slider("Minimum signal score (NORMAL mode)", 45, 80, 55)
-    st.caption("NORMAL mode: balanced scoring; genuine low-quality ranges remain blocked.")
+    min_score = st.slider("Minimum signal score (FAST mode)", 25, 75, 30)
+    st.caption("FAST mode: earlier entries, flexible confirmations; only strongly compressed markets are blocked.")
     st.markdown("**Signal engine weights**")
     st.caption("Price Action 50% · SMC 25% · ICT 10% · CRT 10% · Technical 5%")
     st.divider()
-    st.caption("Data: Twelve Data · Scan every 40 minutes · Max 5 new setups per Kabul day")
+    st.caption("Data: Twelve Data · Scan every 5 minutes while open · Max 8 new setups per Kabul day")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -188,7 +188,7 @@ def candle_quality(row, direction: str) -> bool:
     return float(row["close"]) < float(row["open"]) and body_ratio >= 0.30 and close_location <= 0.30
 
 def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
-    """NORMAL-mode weighted engine. Scores are rule-alignment points, not win probabilities."""
+    """FAST-mode weighted engine. Scores are rule-alignment points, not win probabilities."""
     r5, r15, r1, r4 = (frames[k].iloc[-1] for k in ["5M", "15M", "1H", "4H"])
     trends = {k: trend_of(frames[k].iloc[-1]) for k in ["5M", "15M", "1H", "4H"]}
     d15 = frames["15M"]
@@ -233,6 +233,24 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
     pa_sell += 20 if pa_bos_sell else 0
     pa_buy += 10 if buy_pullback else 0
     pa_sell += 10 if sell_pullback else 0
+
+    # Trend alignment was shown in the dashboard but was not contributing
+    # to the score. Blend it into Price Action without requiring every
+    # timeframe to agree: 4H/1H carry more weight than the execution frames.
+    trend_buy = (
+        (30 if trends["4H"] == "BULLISH" else 0) +
+        (30 if trends["1H"] == "BULLISH" else 0) +
+        (25 if trends["15M"] == "BULLISH" else 0) +
+        (15 if trends["5M"] == "BULLISH" else 0)
+    )
+    trend_sell = (
+        (30 if trends["4H"] == "BEARISH" else 0) +
+        (30 if trends["1H"] == "BEARISH" else 0) +
+        (25 if trends["15M"] == "BEARISH" else 0) +
+        (15 if trends["5M"] == "BEARISH" else 0)
+    )
+    pa_buy = 0.50 * pa_buy + 0.50 * trend_buy
+    pa_sell = 0.50 * pa_sell + 0.50 * trend_sell
 
     # -------- SMC + LIQUIDITY (25%) --------
     smc_buy = smc_sell = 0.0
@@ -322,7 +340,7 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
     adx = float(r15["adx"])
     ema_gap_atr = abs(float(r15["ema20"])-float(r15["ema50"])) / max(atr, eps)
     range_atr = (float(recent["high"].max())-float(recent["low"].min())) / max(atr, eps)
-    is_choppy = adx < 13 and ema_gap_atr < 0.12 and range_atr < 2.4
+    is_choppy = adx < 10 and ema_gap_atr < 0.08 and range_atr < 2.0
 
     checks = {
         "Price Action BUY/SELL pattern": (pa_buy >= 30 or pa_sell >= 30),
@@ -334,7 +352,7 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
     }
 
     signal, direction = "NO TRADE", None
-    min_edge = 4.0
+    min_edge = 1.0
     if not is_choppy and buy_score >= score_floor and buy_score > sell_score + min_edge:
         signal, direction, score = "BUY", "BUY", buy_score
     elif not is_choppy and sell_score >= score_floor and sell_score > buy_score + min_edge:
@@ -347,7 +365,7 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
     if direction and atr > 0:
         ema = float(r15["ema20"])
         structure = d15.tail(12)
-        # NORMAL mode supports both market and limit candidates.
+        # FAST mode supports both market and limit candidates with a wider pullback window.
         if direction == "BUY":
             near_ema = abs(current-ema) <= 0.15*atr
             entry = current if near_ema else ema + 0.05*atr
@@ -356,8 +374,8 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
             sl = min(swing - 0.12*atr, entry - 0.55*atr)
             risk_distance = entry-sl
             entry_distance = (current-entry)/atr
-            valid_entry = near_ema or (0.0 <= entry_distance <= 0.90)
-            valid_risk = 0.50*atr <= risk_distance <= 2.2*atr
+            valid_entry = near_ema or (0.0 <= entry_distance <= 1.20)
+            valid_risk = 0.35*atr <= risk_distance <= 2.5*atr
             if valid_entry and valid_risk:
                 tp1, tp2, tp3 = entry+risk_distance, entry+2*risk_distance, entry+3*risk_distance
         else:
@@ -368,14 +386,14 @@ def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
             sl = max(swing + 0.12*atr, entry + 0.55*atr)
             risk_distance = sl-entry
             entry_distance = (entry-current)/atr
-            valid_entry = near_ema or (0.0 <= entry_distance <= 0.90)
-            valid_risk = 0.50*atr <= risk_distance <= 2.2*atr
+            valid_entry = near_ema or (0.0 <= entry_distance <= 1.20)
+            valid_risk = 0.35*atr <= risk_distance <= 2.5*atr
             if valid_entry and valid_risk:
                 tp1, tp2, tp3 = entry-risk_distance, entry-2*risk_distance, entry-3*risk_distance
         if valid_entry and valid_risk and risk_distance > 0:
             rr = 2.0
         else:
-            rejection.append("Entry distance or stop-loss distance is outside NORMAL-mode limits")
+            rejection.append("Entry distance or stop-loss distance is outside FAST-mode limits")
             signal, direction, order_type = "NO TRADE", None, None
             entry = sl = tp1 = tp2 = tp3 = None
 
@@ -475,8 +493,6 @@ daily_count = len(st.session_state.get("daily_keys", []))
 # Approval history is intentionally session-scoped; it is not a broker order.
 if "approval_log" not in st.session_state:
     st.session_state["approval_log"] = []
-if "trade_journal" not in st.session_state:
-    st.session_state["trade_journal"] = []
 
 # ------------------------------ TOP SUMMARY ------------------------------
 
@@ -484,7 +500,7 @@ st.divider()
 st.subheader("MARKET OVERVIEW")
 scan_now_local = datetime.now(LOCAL_TZ)
 next_scan_local = scan_now_local + timedelta(minutes=SCAN_INTERVAL_MINUTES)
-st.info(f"AUTO SCAN: every {SCAN_INTERVAL_MINUTES} minutes while this dashboard is open · Last calculation: {scan_now_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Next scheduled refresh: about {next_scan_local.strftime('%H:%M')} Kabul time. Phone/browser sleep can delay refresh; this is not a push alert.")
+st.info(f"FAST AUTO SCAN: every {SCAN_INTERVAL_MINUTES} minutes while this dashboard is open · Last calculation: {scan_now_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Next scheduled refresh: about {next_scan_local.strftime('%H:%M')} Kabul time. Phone/browser sleep can delay refresh; this is not a push alert.")
 overview_cols = st.columns(4)
 if "GOLD" in results:
     overview_cols[0].metric("XAU/USD", f"{results['GOLD']['last_price']:,.2f}")
@@ -499,12 +515,12 @@ else:
     overview_cols[2].metric("BTC/USD", "DATA ERROR")
     overview_cols[3].metric("BTC SIGNAL", "DISABLED")
 
-st.caption(f"Daily setup counter: {daily_count}/{MAX_DAILY_SIGNALS} · Kabul date: {today} · Counter is maintained for this app session.")
+st.caption(f"Daily signal counter: {daily_count}/{MAX_DAILY_SIGNALS} · Kabul date: {today}")
 
 # ------------------------------ SCANNER ------------------------------
 
 st.divider()
-st.subheader("🔎 V11 MARKET SCANNER")
+st.subheader("⚡ V12 FAST MARKET SCANNER")
 scanner = []
 for asset, title in [("GOLD","XAU/USD"),("BTC","BTC/USD")]:
     if asset not in results:
@@ -535,7 +551,8 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
         r = results[asset]
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("PRICE", f"{r['last_price']:,.2f}")
-        c2.metric("SIGNAL", r["order_type"] or "NO TRADE")
+        display_signal = ("EARLY " + r["order_type"]) if r["signal"] in ("BUY", "SELL") and r["score"] < 40 else (r["order_type"] or "NO TRADE")
+        c2.metric("SIGNAL", display_signal)
         c3.metric("TECHNICAL SCORE", f"{r['score']}/100")
         c4.metric("RISK / TRADE", f"{risk_pct:.1f}%")
 
@@ -546,11 +563,11 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
         elif r["daily_cap"]:
             st.warning("DAILY SIGNAL LIMIT REACHED.")
         elif r["signal"] == "BUY":
-            st.success("BUY LIMIT candidate — pending setup only; no order is sent to your broker.")
+            st.success(f"{r['order_type']} · FAST setup candidate — manual review required.")
         elif r["signal"] == "SELL":
-            st.error("SELL LIMIT candidate — pending setup only; no order is sent to your broker.")
+            st.error(f"{r['order_type']} · FAST setup candidate — manual review required.")
         else:
-            st.warning("NO TRADE — the NORMAL-mode score is not high enough, direction is unclear, or the market is compressed/ranging.")
+            st.warning("NO SETUP RIGHT NOW — waiting for the next valid opportunity. FAST mode does not force a trade in a severely compressed market.")
 
         if r["signal"] in ("BUY","SELL") and r["entry"] is not None:
             vals = [("LIMIT ENTRY",r["entry"]),("STOP LOSS",r["sl"]),("TAKE PROFIT 1",r["tp1"]),("TAKE PROFIT 2",r["tp2"]),("TAKE PROFIT 3",r["tp3"])]
@@ -613,68 +630,6 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
             st.caption(f"CRT/ICT/SMC/Price Action engine · Market state: {'CHOPPY/RANGE' if r['is_choppy'] else 'TRADEABLE'} · VWAP proxy: {r['vwap']:.4f}")
             st.caption("A PASS checklist or high score is not a statistical probability of success.")
 
-# ------------------------------ RISK CALCULATOR ------------------------------
-
-st.divider()
-st.subheader("🛡️ POSITION RISK PLANNER")
-st.caption("Use this to estimate a cash risk budget. Contract size, pip/tick value and lot sizing differ by broker and instrument.")
-rc1,rc2,rc3=st.columns(3)
-rc1.metric("ACCOUNT BALANCE",f"${account_size:,.2f}")
-rc2.metric("RISK SETTING",f"{risk_pct:.2f}%")
-rc3.metric("MAX PLANNED LOSS",f"${account_size*risk_pct/100:,.2f}")
-st.caption("Do not use the cash risk figure as a lot-size instruction. Confirm contract specifications with your broker.")
-
-# ------------------------------ MANUAL TRADE JOURNAL ------------------------------
-
-st.divider()
-st.subheader("📝 MANUAL TRADE JOURNAL")
-st.caption("Record trades that you actually placed in MT5. This is a local app-session log, not a permanent cloud database.")
-with st.form("manual_trade_journal_form", clear_on_submit=True):
-    j1, j2, j3 = st.columns(3)
-    journal_asset = j1.selectbox("Market", ["GOLD", "BTC"])
-    journal_side = j2.selectbox("Direction", ["BUY", "SELL"])
-    journal_result = j3.selectbox("Result", ["OPEN", "WIN", "LOSS", "BREAKEVEN", "CANCELLED"])
-    j4, j5, j6 = st.columns(3)
-    journal_entry = j4.number_input("Actual Entry Price", min_value=0.0, value=0.0, format="%.5f")
-    journal_exit = j5.number_input("Exit Price (0 if open)", min_value=0.0, value=0.0, format="%.5f")
-    journal_pnl = j6.number_input("P/L in USD (optional)", value=0.0, format="%.2f")
-    journal_notes = st.text_input("Notes (optional)", max_chars=160)
-    journal_submit = st.form_submit_button("➕ SAVE TRADE RECORD", use_container_width=True)
-    if journal_submit:
-        if journal_entry <= 0:
-            st.error("Enter a valid actual entry price before saving.")
-        else:
-            st.session_state["trade_journal"].append({
-                "Time Kabul": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                "Market": journal_asset, "Direction": journal_side, "Status": journal_result,
-                "Entry": journal_entry, "Exit": journal_exit if journal_exit > 0 else None,
-                "P/L USD": journal_pnl, "Notes": journal_notes
-            })
-            st.success("Trade record saved for this app session.")
-
-if st.session_state["trade_journal"]:
-    journal_df = pd.DataFrame(st.session_state["trade_journal"])
-    st.dataframe(journal_df, use_container_width=True, hide_index=True)
-    st.download_button("⬇️ DOWNLOAD TRADE JOURNAL CSV", journal_df.to_csv(index=False).encode("utf-8-sig"),
-                       file_name=f"AFG_trade_journal_{today}.csv", mime="text/csv", use_container_width=True)
-else:
-    st.info("No manual trades recorded in this session yet.")
-
-if st.session_state["approval_log"]:
-    with st.expander("Signal approval history"):
-        approval_df = pd.DataFrame(st.session_state["approval_log"])
-        st.dataframe(approval_df.drop(columns=["signal_key"], errors="ignore"), use_container_width=True, hide_index=True)
-        st.download_button("⬇️ DOWNLOAD APPROVAL HISTORY CSV", approval_df.drop(columns=["signal_key"], errors="ignore").to_csv(index=False).encode("utf-8-sig"),
-                           file_name=f"AFG_approval_history_{today}.csv", mime="text/csv", use_container_width=True)
-
-# ------------------------------ SESSIONS ------------------------------
-
-st.divider()
-st.subheader("🌍 TRADING SESSIONS")
-session_cols=st.columns(3)
-for col,(name,active,clock) in zip(session_cols,session_status()):
-    col.metric(name,"OPEN" if active else "CLOSED",f"Local exchange time {clock}")
-
 # ------------------------------ DATA WARNINGS / AUDIT ------------------------------
 
 if errors:
@@ -684,19 +639,19 @@ if errors:
             for item in items:
                 st.write(f"- {item}")
 
-with st.expander("V11 methodology, limits and safety"):
+with st.expander("V12 FAST methodology and safety"):
     st.write("""
     - Uses completed candles only; the current forming candle is excluded.
-    - Dashboard recalculates every 40 minutes while the browser session remains active; mobile background sleep or connection loss can delay refresh. No push notifications are sent.
+    - Dashboard recalculates every 5 minutes while the browser session remains active; mobile background sleep or connection loss can delay refresh. This dashboard itself does not send push notifications.
     - A setup expires 45 minutes after the latest completed 15-minute candle close; expired or stale setups are disabled.
-    - NORMAL weighted engine: Price Action 50%, SMC 25%, ICT 10%, CRT 10%, Technical 5%; no requirement for every timeframe or every method to agree.
-    - Blocks compressed/choppy ranges using a combined ADX, EMA-separation and recent-range check; ordinary low ADX alone does not block a setup.
-    - Supports MARKET candidates near EMA20 and LIMIT candidates when a pullback entry is more suitable.
+    - FAST weighted engine: Price Action 50%, SMC 25%, ICT 10%, CRT 10%, Technical 5%; multi-timeframe trend alignment is blended into Price Action; no requirement for every timeframe or every method to agree.
+    - Only strongly compressed conditions are blocked; ordinary low ADX or mixed timeframes do not automatically block a setup.
+    - Supports MARKET candidates near EMA20 and LIMIT candidates with a wider pullback window.
     - BUY/SELL MARKET and LIMIT levels are analytical estimates, not broker orders.
     - Technical score measures rule alignment only. It is not a win rate, confidence probability or guarantee.
-    - Manual approvals and trade journal records are held in Streamlit session state and can reset after app restart or a new session; download CSV backups regularly.
-    - The daily signal counter is held in Streamlit session state. A full app restart or a new session may reset it; it is not a durable account-wide trading lock.
+    - Manual approvals are dashboard notes only; no broker order is submitted.
+    - The daily limit is 8 signals in this Streamlit session; it may reset after an app restart or a new session.
     - This version does not claim a verified 99% accuracy. Validate it with out-of-sample historical testing and a demo account, including fees, spread, slippage and missed limit fills.
     - Position size is intentionally not calculated because broker contract specifications are not known.
     """)
-st.caption("AFG AI GOLD PRO ELITE V11 · Decision-support software only · No trade execution")
+st.caption("AFG AI GOLD PRO ELITE V12 FAST SIGNAL · Decision-support software only · No trade execution")
