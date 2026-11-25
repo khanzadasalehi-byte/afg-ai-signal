@@ -7,9 +7,9 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================================
-# AFG AI GOLD PRO ELITE V11 - SMART BALANCED
-# SMC 30 + ICT 25 + Advanced Price Action 25 + Technical 20
-# Twelve Data | Manual trading only | Decision support
+# AFG AI GOLD PRO ELITE V11
+# 40-minute market refresh + time-limited manual signals
+# Provider: Twelve Data | Signals are decision support only
 # ==========================================================
 
 st.set_page_config(
@@ -18,6 +18,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ------------------------------ STYLE ------------------------------
 
 st.markdown("""
 <style>
@@ -46,38 +48,47 @@ hr { border-color:rgba(214,173,85,.22) !important; }
 <div class="hero">
   <div class="hero-kicker">🇦🇫 AFG FINANCIAL INTELLIGENCE</div>
   <div class="hero-title">GOLD PRO <span style="color:#e7c77f">ELITE V11</span></div>
-  <div class="hero-sub">ADVANCED PRICE ACTION ONLY · MARKET STRUCTURE · LIQUIDITY · FVG · MANUAL TRADING</div>
+  <div class="hero-sub">40-MINUTE MARKET SCAN · TIME-LIMITED SIGNALS · MANUAL TRADING</div>
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("V11 PRICE ACTION · Unified signal feed · SCALP / NORMAL labels · Range-only signal block · Manual trading only")
-st.warning("Technical scores are rule-alignment scores, NOT win probabilities. No system guarantees accuracy or profit. Verify every setup and test on a demo account.")
+st.caption("V11 · Separate Gold and Bitcoin · Automatic dashboard refresh every 40 minutes · Signal validity: 45 minutes · Manual trading only")
+st.warning("A weighted technical score is NOT a win probability. No system can guarantee 99% accuracy or profit. Verify every setup and test on a demo account.")
+
+# ------------------------------ CONFIG ------------------------------
 
 API_URL = "https://api.twelvedata.com/time_series"
 SYMBOLS = {"GOLD": "XAU/USD", "BTC": "BTC/USD"}
 INTERVALS = {"5M": "5min", "15M": "15min", "1H": "1h", "4H": "4h"}
 DELTAS = {
-    "5min": pd.Timedelta(minutes=5), "15min": pd.Timedelta(minutes=15),
-    "1h": pd.Timedelta(hours=1), "4h": pd.Timedelta(hours=4),
+    "5min": pd.Timedelta(minutes=5),
+    "15min": pd.Timedelta(minutes=15),
+    "1h": pd.Timedelta(hours=1),
+    "4h": pd.Timedelta(hours=4),
 }
 LOCAL_TZ = ZoneInfo("Asia/Kabul")
 TIMEOUT = 25
-SCAN_INTERVAL_MINUTES = 5  # frequent refresh for short-term scanner
-SCALP_VALIDITY_MINUTES = 45
-DAILY_VALIDITY_MINUTES = 240
-DAILY_SIGNAL_TARGET = 5  # Daily target across GOLD + BTC; never force trades in a range.
-MAX_DAILY_SIGNALS = 9999  # No artificial cap; only valid price-action setups are counted.
+SCAN_INTERVAL_MINUTES = 40
+SIGNAL_VALIDITY_MINUTES = 45
+MAX_DAILY_SIGNALS = 5
 
-st_autorefresh(interval=SCAN_INTERVAL_MINUTES * 60 * 1000, key="afg_v11_smart_refresh")
+# Refresh the dashboard while it remains open in the browser. This is not a push notification.
+st_autorefresh(interval=SCAN_INTERVAL_MINUTES * 60 * 1000, key="afg_v11_40min_refresh")
 
 with st.sidebar:
     st.markdown("### 🇦🇫 AFG GOLD PRO")
-    st.caption("V11 · PRICE ACTION ONLY")
+    st.caption("V11 · NORMAL SIGNAL MODE")
     refresh = st.button("🔄 Refresh Market Data", use_container_width=True)
     st.divider()
-    st.caption("Signal direction uses completed-candle price action. RSI/ADX/EMA/MACD are reference indicators only.")
+    st.markdown("**Risk settings**")
+    risk_pct = st.number_input("Risk per trade (%)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
+    account_size = st.number_input("Account balance (USD)", min_value=10.0, value=1000.0, step=100.0)
+    min_score = st.slider("Minimum signal score (NORMAL mode)", 45, 80, 55)
+    st.caption("NORMAL mode: balanced scoring; genuine low-quality ranges remain blocked.")
+    st.markdown("**Signal engine weights**")
+    st.caption("Price Action 50% · SMC 25% · ICT 10% · CRT 10% · Technical 5%")
     st.divider()
-    st.caption("Twelve Data · Unified signal feed · SCALP and NORMAL setups are labeled on every signal")
+    st.caption("Data: Twelve Data · Scan every 40 minutes · Max 5 new setups per Kabul day")
 
 try:
     API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
@@ -85,12 +96,13 @@ except Exception:
     API_KEY = ""
 
 if not API_KEY:
-    st.error("API key not found. Configure TWELVE_DATA_API_KEY in Streamlit Secrets. Never paste your API key into chat.")
+    st.error("API key not found. Keep TWELVE_DATA_API_KEY configured in Streamlit Secrets. Do not paste your key into chat.")
     st.stop()
 
 if refresh:
     st.cache_data.clear()
 
+# ------------------------------ DATA ------------------------------
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_candles(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
@@ -112,12 +124,14 @@ def get_candles(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
     df = df.dropna(subset=needed).sort_values("datetime").drop_duplicates("datetime").reset_index(drop=True)
+    # Exclude the currently-forming candle.
     cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(seconds=3)
     df = df[df["datetime"] + DELTAS[interval] <= cutoff].reset_index(drop=True)
     if len(df) < 220:
         raise ValueError(f"Only {len(df)} closed candles received; at least 220 are required.")
     return df
 
+# ------------------------------ INDICATORS ------------------------------
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
@@ -125,20 +139,24 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d["ema20"] = close.ewm(span=20, adjust=False).mean()
     d["ema50"] = close.ewm(span=50, adjust=False).mean()
     d["ema200"] = close.ewm(span=200, adjust=False).mean()
+
     delta = close.diff()
     gain, loss = delta.clip(lower=0), -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
     avg_loss = loss.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     d["rsi"] = (100 - 100 / (1 + rs)).fillna(50)
+
     fast = close.ewm(span=12, adjust=False).mean()
     slow = close.ewm(span=26, adjust=False).mean()
     d["macd"] = fast - slow
     d["macd_signal"] = d["macd"].ewm(span=9, adjust=False).mean()
     d["macd_hist"] = d["macd"] - d["macd_signal"]
+
     prev = close.shift(1)
     tr = pd.concat([(d["high"]-d["low"]), (d["high"]-prev).abs(), (d["low"]-prev).abs()], axis=1).max(axis=1)
     d["atr"] = tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+
     up, down = d["high"].diff(), -d["low"].diff()
     plus_dm = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=d.index)
     minus_dm = pd.Series(np.where((down > up) & (down > 0), down, 0.0), index=d.index)
@@ -148,9 +166,9 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d["plus_di"] = plus_di.fillna(0)
     d["minus_di"] = minus_di.fillna(0)
     d["adx"] = dx.ewm(alpha=1/14, adjust=False, min_periods=14).mean().fillna(0)
+
     d["atr_pct"] = (d["atr"] / close.replace(0, np.nan) * 100).replace([np.inf, -np.inf], np.nan)
     return d
-
 
 def trend_of(row) -> str:
     if row["close"] > row["ema50"] > row["ema200"]:
@@ -159,371 +177,222 @@ def trend_of(row) -> str:
         return "BEARISH"
     return "MIXED"
 
-
 def candle_quality(row, direction: str) -> bool:
     rng = max(float(row["high"] - row["low"]), 1e-12)
-    body_ratio = abs(float(row["close"] - row["open"])) / rng
+    body = abs(float(row["close"] - row["open"]))
+    body_ratio = body / rng
     if direction == "BUY":
         close_location = (float(row["high"]) - float(row["close"])) / rng
         return float(row["close"]) > float(row["open"]) and body_ratio >= 0.30 and close_location <= 0.30
     close_location = (float(row["close"]) - float(row["low"])) / rng
     return float(row["close"]) < float(row["open"]) and body_ratio >= 0.30 and close_location <= 0.30
 
+def analyze_signal(frames: dict, score_floor: int, adx_floor: int):
+    """NORMAL-mode weighted engine. Scores are rule-alignment points, not win probabilities."""
+    r5, r15, r1, r4 = (frames[k].iloc[-1] for k in ["5M", "15M", "1H", "4H"])
+    trends = {k: trend_of(frames[k].iloc[-1]) for k in ["5M", "15M", "1H", "4H"]}
+    d15 = frames["15M"]
+    d1h = frames["1H"]
+    recent = d15.tail(24)
+    prior = d15.iloc[-25:-1]
+    atr = float(r15["atr"]) if np.isfinite(r15["atr"]) else 0.0
+    current = float(r15["close"])
+    eps = max(atr * 1e-9, 1e-12)
 
-def analyze_smart_confluence(frames: dict) -> dict:
-    """
-    SMART BALANCED confluence:
-    SMC 30, ICT 25, Advanced Price Action 25, Technical 20.
-    All pattern tests use completed candles. This is a rule-based approximation,
-    not a claim to identify every discretionary SMC/ICT concept.
-    """
-    d = frames["15M"].copy().reset_index(drop=True)
-    r = d.iloc[-1]
-    prev = d.iloc[-2]
-    buy_smc = sell_smc = 0
-    buy_ict = sell_ict = 0
-    buy_pa = sell_pa = 0
+    # -------- PRICE ACTION (50%) --------
+    pa_buy = pa_sell = 0.0
+    buy_candle = candle_quality(r15, "BUY")
+    sell_candle = candle_quality(r15, "SELL")
+    prev15 = d15.iloc[-2]
+    engulf_buy = (float(r15["close"]) > float(r15["open"]) and
+                  float(r15["open"]) <= float(prev15["close"]) and
+                  float(r15["close"]) >= float(prev15["open"]))
+    engulf_sell = (float(r15["close"]) < float(r15["open"]) and
+                   float(r15["open"]) >= float(prev15["close"]) and
+                   float(r15["close"]) <= float(prev15["open"]))
+    # Recent structure break, excluding the live signal candle.
+    swing_hi = float(prior.tail(12)["high"].max()) if len(prior) >= 12 else float(prior["high"].max())
+    swing_lo = float(prior.tail(12)["low"].min()) if len(prior) >= 12 else float(prior["low"].min())
+    pa_bos_buy = current > swing_hi
+    pa_bos_sell = current < swing_lo
+    # Rejection wick / pin-bar style candle.
+    candle_range = max(float(r15["high"] - r15["low"]), eps)
+    lower_wick = min(float(r15["open"]), float(r15["close"])) - float(r15["low"])
+    upper_wick = float(r15["high"]) - max(float(r15["open"]), float(r15["close"]))
+    pin_buy = lower_wick / candle_range >= 0.42 and float(r15["close"]) > float(r15["low"] + 0.55*candle_range)
+    pin_sell = upper_wick / candle_range >= 0.42 and float(r15["close"]) < float(r15["low"] + 0.45*candle_range)
+    buy_pullback = current > float(r15["ema20"]) and float(r15["low"]) <= float(r15["ema20"]) + 0.35*atr if atr else False
+    sell_pullback = current < float(r15["ema20"]) and float(r15["high"]) >= float(r15["ema20"]) - 0.35*atr if atr else False
+    pa_buy += 30 if buy_candle else 0
+    pa_sell += 30 if sell_candle else 0
+    pa_buy += 20 if engulf_buy else 0
+    pa_sell += 20 if engulf_sell else 0
+    pa_buy += 20 if pin_buy else 0
+    pa_sell += 20 if pin_sell else 0
+    pa_buy += 20 if pa_bos_buy else 0
+    pa_sell += 20 if pa_bos_sell else 0
+    pa_buy += 10 if buy_pullback else 0
+    pa_sell += 10 if sell_pullback else 0
 
-    # Confirmed local swing points: two candles on either side.
-    lookback = d.tail(62).reset_index(drop=True)
-    swing_highs, swing_lows = [], []
-    for i in range(2, len(lookback) - 2):
-        h, lo = float(lookback.iloc[i]["high"]), float(lookback.iloc[i]["low"])
-        if h > float(lookback.iloc[i-2:i]["high"].max()) and h > float(lookback.iloc[i+1:i+3]["high"].max()):
-            swing_highs.append((i, h))
-        if lo < float(lookback.iloc[i-2:i]["low"].min()) and lo < float(lookback.iloc[i+1:i+3]["low"].min()):
-            swing_lows.append((i, lo))
+    # -------- SMC + LIQUIDITY (25%) --------
+    smc_buy = smc_sell = 0.0
+    liq_window = d15.iloc[-21:-1]
+    prior_high = float(liq_window["high"].max())
+    prior_low = float(liq_window["low"].min())
+    sweep_buy = float(r15["low"]) < prior_low and current > prior_low
+    sweep_sell = float(r15["high"]) > prior_high and current < prior_high
+    # Three-candle fair-value-gap approximation.
+    fvg_buy = float(d15.iloc[-1]["low"]) > float(d15.iloc[-3]["high"])
+    fvg_sell = float(d15.iloc[-1]["high"]) < float(d15.iloc[-3]["low"])
+    # Order-block proxy: last opposite candle before a recent directional displacement.
+    ob_buy = (float(prev15["close"]) < float(prev15["open"]) and current > float(prev15["high"]) and
+              (current - float(prev15["low"])) >= 0.35*atr) if atr else False
+    ob_sell = (float(prev15["close"]) > float(prev15["open"]) and current < float(prev15["low"]) and
+               (float(prev15["high"]) - current) >= 0.35*atr) if atr else False
+    smc_buy += 40 if sweep_buy else 0
+    smc_sell += 40 if sweep_sell else 0
+    smc_buy += 25 if pa_bos_buy else 0
+    smc_sell += 25 if pa_bos_sell else 0
+    smc_buy += 20 if fvg_buy else 0
+    smc_sell += 20 if fvg_sell else 0
+    smc_buy += 15 if ob_buy else 0
+    smc_sell += 15 if ob_sell else 0
 
-    last_high = swing_highs[-1][1] if swing_highs else None
-    last_low = swing_lows[-1][1] if swing_lows else None
+    # -------- ICT (10%) --------
+    ict_buy = ict_sell = 0.0
+    dealing = d15.tail(50)
+    dealing_hi, dealing_lo = float(dealing["high"].max()), float(dealing["low"].min())
+    midpoint = (dealing_hi + dealing_lo) / 2
+    # Discount/premium location and liquidity raid / displacement proxies.
+    discount = current <= midpoint
+    premium = current >= midpoint
+    ict_buy += 35 if discount else 0
+    ict_sell += 35 if premium else 0
+    ict_buy += 35 if sweep_buy else 0
+    ict_sell += 35 if sweep_sell else 0
+    ict_buy += 30 if (fvg_buy or (buy_candle and pa_bos_buy)) else 0
+    ict_sell += 30 if (fvg_sell or (sell_candle and pa_bos_sell)) else 0
 
-    # Liquidity sweep / raid: wick crosses a confirmed swing, close returns inside.
-    buy_sweep = last_low is not None and float(r["low"]) < last_low and float(r["close"]) > last_low
-    sell_sweep = last_high is not None and float(r["high"]) > last_high and float(r["close"]) < last_high
-    if buy_sweep:
-        buy_smc += 10
-        buy_ict += 5
-    if sell_sweep:
-        sell_smc += 10
-        sell_ict += 5
+    # -------- CRT (10%) --------
+    crt_buy = crt_sell = 0.0
+    prev_h1 = d1h.iloc[-2]
+    h1_high, h1_low = float(prev_h1["high"]), float(prev_h1["low"])
+    crt_sweep_low = float(r15["low"]) < h1_low and current > h1_low
+    crt_sweep_high = float(r15["high"]) > h1_high and current < h1_high
+    crt_buy += 65 if crt_sweep_low else 0
+    crt_sell += 65 if crt_sweep_high else 0
+    crt_buy += 35 if current > (h1_high+h1_low)/2 else 0
+    crt_sell += 35 if current < (h1_high+h1_low)/2 else 0
 
-    # BOS and CHoCH-like close beyond the latest confirmed swing.
-    if last_high is not None and float(r["close"]) > last_high:
-        buy_smc += 8
-    if last_low is not None and float(r["close"]) < last_low:
-        sell_smc += 8
+    # -------- TECHNICAL + VWAP (5%) --------
+    tech_buy = tech_sell = 0.0
+    buy_rsi = 48 < float(r15["rsi"]) < 72
+    sell_rsi = 28 < float(r15["rsi"]) < 52
+    buy_macd = float(r15["macd_hist"]) > 0
+    sell_macd = float(r15["macd_hist"]) < 0
+    buy_di = float(r15["plus_di"]) > float(r15["minus_di"])
+    sell_di = float(r15["minus_di"]) > float(r15["plus_di"])
+    buy_ema = current > float(r15["ema20"])
+    sell_ema = current < float(r15["ema20"])
+    # Volume-weighted average when provider supplies volume; otherwise use a typical-price mean proxy.
+    if "volume" in d15.columns and pd.to_numeric(d15["volume"], errors="coerce").fillna(0).tail(20).sum() > 0:
+        vv = pd.to_numeric(d15["volume"], errors="coerce").fillna(0).tail(20)
+        tp = ((d15["high"] + d15["low"] + d15["close"])/3).tail(20)
+        vwap = float((tp*vv).sum()/max(float(vv.sum()), 1e-12))
+    else:
+        vwap = float(((d15["high"] + d15["low"] + d15["close"])/3).tail(20).mean())
+    buy_vwap, sell_vwap = current >= vwap, current <= vwap
+    tech_buy += 25 if buy_rsi else 0
+    tech_sell += 25 if sell_rsi else 0
+    tech_buy += 25 if buy_macd else 0
+    tech_sell += 25 if sell_macd else 0
+    tech_buy += 20 if buy_di else 0
+    tech_sell += 20 if sell_di else 0
+    tech_buy += 15 if (buy_ema and buy_vwap) else 0
+    tech_sell += 15 if (sell_ema and sell_vwap) else 0
 
-    # Three-candle fair value gap. Current candle must create the gap.
-    if len(d) >= 3:
-        candle_1 = d.iloc[-3]
-        bullish_fvg = float(r["low"]) > float(candle_1["high"])
-        bearish_fvg = float(r["high"]) < float(candle_1["low"])
-        if bullish_fvg:
-            buy_smc += 6
-            buy_ict += 3
-        if bearish_fvg:
-            sell_smc += 6
-            sell_ict += 3
+    weights = {"Price Action": 0.50, "SMC": 0.25, "ICT": 0.10, "CRT": 0.10, "Technical": 0.05}
+    buy_parts = {"Price Action":pa_buy, "SMC":smc_buy, "ICT":ict_buy, "CRT":crt_buy, "Technical":tech_buy}
+    sell_parts = {"Price Action":pa_sell, "SMC":smc_sell, "ICT":ict_sell, "CRT":crt_sell, "Technical":tech_sell}
+    buy_score = sum(buy_parts[k]*weights[k] for k in weights)
+    sell_score = sum(sell_parts[k]*weights[k] for k in weights)
+    score = max(buy_score, sell_score)
 
-    # Premium / discount of the recent dealing range.
-    dealing = d.tail(60)
-    range_high = float(dealing["high"].max())
-    range_low = float(dealing["low"].min())
-    midpoint = (range_high + range_low) / 2
-    if float(r["close"]) < midpoint:
-        buy_smc += 6
-    elif float(r["close"]) > midpoint:
-        sell_smc += 6
+    # Block only genuinely compressed/choppy conditions, not every low-ADX trend.
+    adx = float(r15["adx"])
+    ema_gap_atr = abs(float(r15["ema20"])-float(r15["ema50"])) / max(atr, eps)
+    range_atr = (float(recent["high"].max())-float(recent["low"].min())) / max(atr, eps)
+    is_choppy = adx < 13 and ema_gap_atr < 0.12 and range_atr < 2.4
 
-    # ICT displacement: large real body relative to ATR and candle range.
-    atr = max(float(r["atr"]) if np.isfinite(r["atr"]) else 0.0, 1e-12)
-    candle_range = max(float(r["high"] - r["low"]), 1e-12)
-    body = abs(float(r["close"] - float(r["open"])))
-    bullish_displacement = float(r["close"]) > float(r["open"]) and body / candle_range >= 0.65 and candle_range >= 1.2 * atr
-    bearish_displacement = float(r["close"]) < float(r["open"]) and body / candle_range >= 0.65 and candle_range >= 1.2 * atr
-    if bullish_displacement:
-        buy_ict += 8
-    if bearish_displacement:
-        sell_ict += 8
-
-    # Approximate OTE retracement zones of the recent range.
-    swing_range = range_high - range_low
-    if swing_range > 0:
-        bullish_ote_low = range_high - swing_range * 0.79
-        bullish_ote_high = range_high - swing_range * 0.62
-        bearish_ote_low = range_low + swing_range * 0.62
-        bearish_ote_high = range_low + swing_range * 0.79
-        if bullish_ote_low <= float(r["close"]) <= bullish_ote_high:
-            buy_ict += 8
-        if bearish_ote_low <= float(r["close"]) <= bearish_ote_high:
-            sell_ict += 8
-
-    # Simplified order-block retest: recent opposite candle followed by close beyond its range.
-    for i in range(len(d)-2, max(-1, len(d)-9), -1):
-        ob, impulse = d.iloc[i], d.iloc[i+1]
-        if float(ob["close"]) < float(ob["open"]) and float(impulse["close"]) > float(ob["high"]):
-            if float(ob["low"]) <= float(r["close"]) <= float(ob["high"]):
-                buy_ict += 5
-            break
-    for i in range(len(d)-2, max(-1, len(d)-9), -1):
-        ob, impulse = d.iloc[i], d.iloc[i+1]
-        if float(ob["close"]) > float(ob["open"]) and float(impulse["close"]) < float(ob["low"]):
-            if float(ob["low"]) <= float(r["close"]) <= float(ob["high"]):
-                sell_ict += 5
-            break
-
-    # Kill-zone timing is based on current UTC clock, not candle timestamp.
-    now = datetime.now(timezone.utc)
-    london = now.astimezone(ZoneInfo("Europe/London"))
-    new_york = now.astimezone(ZoneInfo("America/New_York"))
-    killzone = (7 <= london.hour < 10) or (8 <= new_york.hour < 11)
-    if killzone:
-        buy_ict += 4
-        sell_ict += 4
-
-    # Advanced price action: engulfing, rejection wick, breakout-retest.
-    previous_bullish = float(prev["close"]) > float(prev["open"])
-    previous_bearish = float(prev["close"]) < float(prev["open"])
-    current_bullish = float(r["close"]) > float(r["open"])
-    current_bearish = float(r["close"]) < float(r["open"])
-
-    if current_bullish and previous_bearish and float(r["close"]) > float(prev["open"]) and float(r["open"]) < float(prev["close"]):
-        buy_pa += 10
-    if current_bearish and previous_bullish and float(r["close"]) < float(prev["open"]) and float(r["open"]) > float(prev["close"]):
-        sell_pa += 10
-
-    upper_wick = float(r["high"]) - max(float(r["open"]), float(r["close"]))
-    lower_wick = min(float(r["open"]), float(r["close"])) - float(r["low"])
-    if lower_wick >= max(body, 1e-12) * 2 and current_bullish:
-        buy_pa += 8
-    if upper_wick >= max(body, 1e-12) * 2 and current_bearish:
-        sell_pa += 8
-
-    prior = d.iloc[-7:-1]
-    if len(prior) == 6:
-        resistance = float(prior["high"].max())
-        support = float(prior["low"].min())
-        if float(prev["close"]) > resistance and float(r["low"]) <= resistance and float(r["close"]) > resistance:
-            buy_pa += 7
-        if float(prev["close"]) < support and float(r["high"]) >= support and float(r["close"]) < support:
-            sell_pa += 7
-
-    # Technical indicators are intentionally excluded from signal scoring.
-    # Directional decisions are made only from OHLC price action / structure.
-    buy_technical = sell_technical = 0
-
-    # Cap each bucket to its declared maximum.
-    buy_smc, sell_smc = min(30, buy_smc), min(30, sell_smc)
-    buy_ict, sell_ict = min(25, buy_ict), min(25, sell_ict)
-    buy_pa, sell_pa = min(25, buy_pa), min(25, sell_pa)
-    buy_technical, sell_technical = min(20, buy_technical), min(20, sell_technical)
-
-    buy_total = buy_smc + buy_ict + buy_pa + buy_technical
-    sell_total = sell_smc + sell_ict + sell_pa + sell_technical
-
-    buy_confirmations = sum([buy_smc >= 12, buy_ict >= 10, buy_pa >= 10])
-    sell_confirmations = sum([sell_smc >= 12, sell_ict >= 10, sell_pa >= 10])
-
-    return {
-        "buy_smc": buy_smc, "sell_smc": sell_smc,
-        "buy_ict": buy_ict, "sell_ict": sell_ict,
-        "buy_pa": buy_pa, "sell_pa": sell_pa,
-        "buy_technical": buy_technical, "sell_technical": sell_technical,
-        "buy_total": buy_total, "sell_total": sell_total,
-        "buy_confirmations": buy_confirmations,
-        "sell_confirmations": sell_confirmations,
-        "buy_sweep": buy_sweep, "sell_sweep": sell_sweep,
-        "bullish_fvg": bullish_fvg if len(d) >= 3 else False,
-        "bearish_fvg": bearish_fvg if len(d) >= 3 else False,
-        "killzone": killzone, "midpoint": midpoint,
-        "last_swing_high": last_high, "last_swing_low": last_low,
+    checks = {
+        "Price Action BUY/SELL pattern": (pa_buy >= 30 or pa_sell >= 30),
+        "SMC liquidity / structure": (smc_buy >= 25 or smc_sell >= 25),
+        "ICT context": (ict_buy >= 35 or ict_sell >= 35),
+        "CRT range reaction": (crt_buy >= 35 or crt_sell >= 35),
+        "Technical / VWAP support": (tech_buy >= 25 or tech_sell >= 25),
+        "Not a compressed range": not is_choppy,
     }
-
-
-def is_true_range(st4: dict, st1: dict, st15: dict) -> bool:
-    """
-    Block signals only when all three structural horizons are range-bound.
-    A single ranging timeframe does not suppress a valid directional setup.
-    """
-    return (
-        st4["bias"] == "RANGE"
-        and st1["bias"] == "RANGE"
-        and st15["bias"] == "RANGE"
-        and not st15["bos_up"]
-        and not st15["bos_dn"]
-    )
-
-
-def analyze_signal(frames: dict, score_floor: int):
-    """Price-action-only signal engine. Indicators do not decide direction or entry."""
-    d5, d15, d1, d4 = (frames[k].copy().reset_index(drop=True) for k in ["5M", "15M", "1H", "4H"])
-    smart = analyze_smart_confluence(frames)  # SMC/ICT/PA pattern diagnostics; technical bucket is zero.
-
-    def structure(df):
-        x = df.tail(80).reset_index(drop=True)
-        highs, lows = [], []
-        for i in range(2, len(x)-2):
-            if x.iloc[i].high > x.iloc[i-2:i].high.max() and x.iloc[i].high > x.iloc[i+1:i+3].high.max():
-                highs.append(float(x.iloc[i].high))
-            if x.iloc[i].low < x.iloc[i-2:i].low.min() and x.iloc[i].low < x.iloc[i+1:i+3].low.min():
-                lows.append(float(x.iloc[i].low))
-        last = x.iloc[-1]
-        prev = x.iloc[-2]
-        hh = len(highs) >= 2 and highs[-1] > highs[-2]
-        hl = len(lows) >= 2 and lows[-1] > lows[-2]
-        lh = len(highs) >= 2 and highs[-1] < highs[-2]
-        ll = len(lows) >= 2 and lows[-1] < lows[-2]
-        bias = "BULLISH" if hh and hl else "BEARISH" if lh and ll else "RANGE"
-        sh = highs[-1] if highs else float(x.high.iloc[:-2].tail(20).max())
-        sl = lows[-1] if lows else float(x.low.iloc[:-2].tail(20).min())
-        bos_up = float(last.close) > sh
-        bos_dn = float(last.close) < sl
-        return {"bias":bias,"swing_high":sh,"swing_low":sl,"bos_up":bos_up,"bos_dn":bos_dn}
-
-    st4, st1, st15, st5 = map(structure, (d4,d1,d15,d5))
-    r, prev, prev2 = d15.iloc[-1], d15.iloc[-2], d15.iloc[-3]
-    rng = max(float(r.high-r.low), 1e-12)
-    body = abs(float(r.close-r.open))
-    upper = float(r.high-max(r.open,r.close))
-    lower = float(min(r.open,r.close)-r.low)
-    bullish_engulf = float(prev.close)<float(prev.open) and float(r.close)>float(r.open) and float(r.close)>=float(prev.open) and float(r.open)<=float(prev.close)
-    bearish_engulf = float(prev.close)>float(prev.open) and float(r.close)<float(r.open) and float(r.close)<=float(prev.open) and float(r.open)>=float(prev.close)
-    bull_rejection = lower >= max(body,1e-12)*1.8 and float(r.close)>float(r.open) and (float(r.close)-float(r.low))/rng >= .65
-    bear_rejection = upper >= max(body,1e-12)*1.8 and float(r.close)<float(r.open) and (float(r.high)-float(r.close))/rng >= .65
-
-    # Sweep of recent confirmed liquidity pools followed by a close back inside.
-    pool = d15.iloc[-22:-2]
-    buy_sweep = float(r.low)<float(pool.low.min()) and float(r.close)>float(pool.low.min())
-    sell_sweep = float(r.high)>float(pool.high.max()) and float(r.close)<float(pool.high.max())
-    # Three-candle imbalance / FVG.
-    bull_fvg = float(r.low)>float(prev2.high)
-    bear_fvg = float(r.high)<float(prev2.low)
-    # Breakout followed by a retest and close back beyond the broken level.
-    prior = d15.iloc[-8:-2]
-    resistance, support = float(prior.high.max()), float(prior.low.min())
-    bull_retest = float(prev.close)>resistance and float(r.low)<=resistance and float(r.close)>resistance
-    bear_retest = float(prev.close)<support and float(r.high)>=support and float(r.close)<support
-
-    buy_points = {
-        "4H bullish structure": st4["bias"]=="BULLISH",
-        "1H bullish structure": st1["bias"]=="BULLISH",
-        "15M bullish BOS": st15["bos_up"],
-        "Liquidity sweep": buy_sweep,
-        "Bullish engulfing": bullish_engulf,
-        "Bullish rejection candle": bull_rejection,
-        "Bullish FVG": bull_fvg,
-        "Breakout retest": bull_retest,
-        "5M bullish structure": st5["bias"]=="BULLISH",
-    }
-    sell_points = {
-        "4H bearish structure": st4["bias"]=="BEARISH",
-        "1H bearish structure": st1["bias"]=="BEARISH",
-        "15M bearish BOS": st15["bos_dn"],
-        "Liquidity sweep": sell_sweep,
-        "Bearish engulfing": bearish_engulf,
-        "Bearish rejection candle": bear_rejection,
-        "Bearish FVG": bear_fvg,
-        "Breakdown retest": bear_retest,
-        "5M bearish structure": st5["bias"]=="BEARISH",
-    }
-    buy_score = int(sum(buy_points.values())*100/len(buy_points))
-    sell_score = int(sum(sell_points.values())*100/len(sell_points))
-    # Adaptive PA qualification: range is the only market regime that blocks signals.
-    # Outside a range, allow earlier valid setups so directional moves are less likely
-    # to be missed. This increases opportunity frequency but does not guarantee wins.
-    buy_triggers = sum([buy_sweep,bullish_engulf,bull_rejection,bull_fvg,bull_retest])
-    sell_triggers = sum([sell_sweep,bearish_engulf,bear_rejection,bear_fvg,bear_retest])
-    ranging = is_true_range(st4, st1, st15)
-
-    buy_context = st1["bias"] == "BULLISH" or st4["bias"] == "BULLISH"
-    sell_context = st1["bias"] == "BEARISH" or st4["bias"] == "BEARISH"
-    buy_confirmation = st15["bos_up"] or bull_retest or st5["bias"] == "BULLISH"
-    sell_confirmation = st15["bos_dn"] or bear_retest or st5["bias"] == "BEARISH"
-
-    strong_buy = (not ranging and st4["bias"] == st1["bias"] == "BULLISH"
-                  and st15["bos_up"] and buy_triggers >= 2 and buy_score >= max(55, score_floor))
-    strong_sell = (not ranging and st4["bias"] == st1["bias"] == "BEARISH"
-                   and st15["bos_dn"] and sell_triggers >= 2 and sell_score >= max(55, score_floor))
-    early_buy = (not ranging and buy_context and st4["bias"] != "BEARISH"
-                 and buy_triggers >= 1 and buy_confirmation and buy_score >= max(40, score_floor - 10))
-    early_sell = (not ranging and sell_context and st4["bias"] != "BULLISH"
-                  and sell_triggers >= 1 and sell_confirmation and sell_score >= max(40, score_floor - 10))
 
     signal, direction = "NO TRADE", None
-    score = max(buy_score,sell_score)
-    if ranging:
-        rejection_reason = "RANGE MARKET — signals are disabled until directional structure appears"
-    else:
-        rejection_reason = None
-        if strong_buy and buy_score>sell_score: signal,direction,score="STRONG BUY","BUY",buy_score
-        elif strong_sell and sell_score>buy_score: signal,direction,score="STRONG SELL","SELL",sell_score
-        elif early_buy and buy_score>sell_score: signal,direction,score="EARLY BUY","BUY",buy_score
-        elif early_sell and sell_score>buy_score: signal,direction,score="EARLY SELL","SELL",sell_score
+    min_edge = 4.0
+    if not is_choppy and buy_score >= score_floor and buy_score > sell_score + min_edge:
+        signal, direction, score = "BUY", "BUY", buy_score
+    elif not is_choppy and sell_score >= score_floor and sell_score > buy_score + min_edge:
+        signal, direction, score = "SELL", "SELL", sell_score
 
-    current=float(r.close)
-    # Volatility estimate from recent candle ranges; no indicator-based direction.
-    avg_range=float((d15.high-d15.low).tail(14).mean())
-    entry=sl=tp1=tp2=tp3=None
-    order_type=None
-    risk_distance=entry_distance=rr=None
-    rejection=[]
-    if direction and avg_range>0:
-        recent=d15.tail(12)
-        if direction=="BUY":
-            # Limit entry at the midpoint of the latest bullish imbalance if available,
-            # otherwise at the midpoint of the latest bullish candle body.
-            entry=(float(prev2.high)+float(r.low))/2 if bull_fvg else (float(r.open)+float(r.close))/2
-            swing=float(recent.low.min())
-            sl=min(swing-0.12*avg_range,entry-0.5*avg_range)
-            risk_distance=entry-sl
-            entry_distance=(current-entry)/avg_range
-            order_type="BUY LIMIT"
-            valid_entry=-0.15<=entry_distance<=0.85
-            valid_risk=0.5*avg_range<=risk_distance<=2.5*avg_range
-            if valid_entry and valid_risk: tp1,tp2,tp3=entry+risk_distance,entry+2*risk_distance,entry+3*risk_distance
+    entry = sl = tp1 = tp2 = tp3 = None
+    order_type = None
+    rr = risk_distance = entry_distance = None
+    rejection = []
+    if direction and atr > 0:
+        ema = float(r15["ema20"])
+        structure = d15.tail(12)
+        # NORMAL mode supports both market and limit candidates.
+        if direction == "BUY":
+            near_ema = abs(current-ema) <= 0.15*atr
+            entry = current if near_ema else ema + 0.05*atr
+            order_type = "BUY MARKET" if near_ema else "BUY LIMIT"
+            swing = float(structure["low"].min())
+            sl = min(swing - 0.12*atr, entry - 0.55*atr)
+            risk_distance = entry-sl
+            entry_distance = (current-entry)/atr
+            valid_entry = near_ema or (0.0 <= entry_distance <= 0.90)
+            valid_risk = 0.50*atr <= risk_distance <= 2.2*atr
+            if valid_entry and valid_risk:
+                tp1, tp2, tp3 = entry+risk_distance, entry+2*risk_distance, entry+3*risk_distance
         else:
-            entry=(float(r.high)+float(prev2.low))/2 if bear_fvg else (float(r.open)+float(r.close))/2
-            swing=float(recent.high.max())
-            sl=max(swing+0.12*avg_range,entry+0.5*avg_range)
-            risk_distance=sl-entry
-            entry_distance=(entry-current)/avg_range
-            order_type="SELL LIMIT"
-            valid_entry=-0.15<=entry_distance<=0.85
-            valid_risk=0.5*avg_range<=risk_distance<=2.5*avg_range
-            if valid_entry and valid_risk: tp1,tp2,tp3=entry-risk_distance,entry-2*risk_distance,entry-3*risk_distance
-        if valid_entry and valid_risk and risk_distance>0: rr=2.0
+            near_ema = abs(current-ema) <= 0.15*atr
+            entry = current if near_ema else ema - 0.05*atr
+            order_type = "SELL MARKET" if near_ema else "SELL LIMIT"
+            swing = float(structure["high"].max())
+            sl = max(swing + 0.12*atr, entry + 0.55*atr)
+            risk_distance = sl-entry
+            entry_distance = (entry-current)/atr
+            valid_entry = near_ema or (0.0 <= entry_distance <= 0.90)
+            valid_risk = 0.50*atr <= risk_distance <= 2.2*atr
+            if valid_entry and valid_risk:
+                tp1, tp2, tp3 = entry-risk_distance, entry-2*risk_distance, entry-3*risk_distance
+        if valid_entry and valid_risk and risk_distance > 0:
+            rr = 2.0
         else:
-            rejection.append("Price-action entry or structural stop is outside allowed range")
-            signal,direction,order_type="NO TRADE",None,None
-            entry=sl=tp1=tp2=tp3=None
+            rejection.append("Entry distance or stop-loss distance is outside NORMAL-mode limits")
+            signal, direction, order_type = "NO TRADE", None, None
+            entry = sl = tp1 = tp2 = tp3 = None
 
-    trends={"4H":st4["bias"],"1H":st1["bias"],"15M":st15["bias"],"5M":st5["bias"]}
-    checks={
-        "4H/1H price structure aligned": st4["bias"]==st1["bias"] and st1["bias"] in ("BULLISH","BEARISH"),
-        "15M structure break": st15["bos_up"] or st15["bos_dn"],
-        "Liquidity sweep": buy_sweep or sell_sweep,
-        "Engulfing / rejection candle": bullish_engulf or bearish_engulf or bull_rejection or bear_rejection,
-        "Fair value gap": bull_fvg or bear_fvg,
-        "Breakout retest": bull_retest or bear_retest,
-        "At least two PA entry triggers": max(buy_triggers,sell_triggers)>=2,
+    return {
+        "signal":signal, "direction":direction, "score":int(round(min(100,score))),
+        "buy_score":round(buy_score,1), "sell_score":round(sell_score,1),
+        "score_parts_buy":{k:round(v,1) for k,v in buy_parts.items()},
+        "score_parts_sell":{k:round(v,1) for k,v in sell_parts.items()},
+        "order_type":order_type, "current_price":current, "entry":entry, "sl":sl,
+        "tp1":tp1, "tp2":tp2, "tp3":tp3, "rr":rr,
+        "risk_distance":risk_distance, "entry_distance_atr":entry_distance,
+        "trends":trends, "checks":checks, "adx":adx, "rsi":float(r15["rsi"]),
+        "atr":atr, "rejection":rejection, "is_choppy":is_choppy,
+        "vwap":vwap, "weights":weights,
     }
-    smart.update({"buy_smc":int(buy_sweep)*10,"sell_smc":int(sell_sweep)*10,
-                  "buy_ict":int(bull_fvg)*10,"sell_ict":int(bear_fvg)*10,
-                  "buy_pa":int(bullish_engulf or bull_rejection or bull_retest)*20,
-                  "sell_pa":int(bearish_engulf or bear_rejection or bear_retest)*20,
-                  "buy_technical":0,"sell_technical":0,
-                  "buy_total":buy_score,"sell_total":sell_score,
-                  "buy_confirmations":buy_triggers,"sell_confirmations":sell_triggers,
-                  "buy_sweep":buy_sweep,"sell_sweep":sell_sweep,
-                  "bullish_fvg":bull_fvg,"bearish_fvg":bear_fvg,
-                  "last_swing_high":st15["swing_high"],"last_swing_low":st15["swing_low"]})
-    return {"signal":signal,"direction":direction,"score":int(score),
-            "buy_score":buy_score,"sell_score":sell_score,"order_type":order_type,
-            "current_price":current,"entry":entry,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,
-            "rr":rr,"risk_distance":risk_distance,"entry_distance_atr":entry_distance,
-            "trends":trends,"checks":checks,"is_range":ranging,"range_reason":rejection_reason,"adx":float(r.get("adx",0)),"rsi":float(r.get("rsi",50)),
-            "atr":avg_range,"rejection":rejection,"smart_analysis":smart}
 
+# ------------------------------ SESSION / DAILY LIMIT ------------------------------
 
 def session_status():
     now = datetime.now(timezone.utc)
@@ -536,9 +405,10 @@ def session_status():
         ("NEW YORK", 8 <= ny.hour < 17, ny.strftime("%H:%M")),
     ]
 
+# ------------------------------ LOAD DATA ------------------------------
 
 market, errors = {}, {}
-with st.spinner("Loading completed-candle data for Gold and Bitcoin..."):
+with st.spinner("Loading closed-candle data for Gold and Bitcoin..."):
     for asset, symbol in SYMBOLS.items():
         frames, asset_errors = {}, []
         for label, interval in INTERVALS.items():
@@ -559,178 +429,166 @@ if not market:
             st.write(f"- {item}")
     st.stop()
 
-# One unified signal stream. SCALP is labeled when 5M and 15M structure
-# agree with the trade direction; all other valid directional setups are NORMAL.
 results = {}
 for asset, frames in market.items():
-    res = analyze_signal(frames, 45)
-    now_utc = datetime.now(timezone.utc)
+    res = analyze_signal(frames, min_score, 20)
     last15 = frames["15M"].iloc[-1]
     last_close_time = last15["datetime"].to_pydatetime() + timedelta(minutes=15)
-    direction = res.get("direction")
-    wanted_bias = "BULLISH" if direction == "BUY" else "BEARISH"
-    scalp_aligned = bool(direction and
-        res["trends"].get("5M") == wanted_bias and
-        res["trends"].get("15M") == wanted_bias)
-    signal_type = "SCALP" if scalp_aligned else "NORMAL"
-    validity = SCALP_VALIDITY_MINUTES if signal_type == "SCALP" else DAILY_VALIDITY_MINUTES
-    expiry = now_utc + timedelta(minutes=validity)
-    age = now_utc - last_close_time
-    stale = age > timedelta(minutes=validity)
-    remaining = max(0, int((expiry - now_utc).total_seconds()))
+    age = datetime.now(timezone.utc) - last_close_time
+    stale = age > timedelta(minutes=SIGNAL_VALIDITY_MINUTES)
+    expiry = last_close_time + timedelta(minutes=SIGNAL_VALIDITY_MINUTES)
+    remaining = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds()))
     res.update({
-        "signal_type": signal_type,
         "last_price": float(last15["close"]),
         "last_candle_time": last15["datetime"].to_pydatetime(),
-        "generated_at": now_utc, "stale": stale, "expired": remaining <= 0,
-        "valid_until": expiry.astimezone(LOCAL_TZ), "remaining": remaining,
-        "validity_minutes": validity, "daily_cap": False,
+        "generated_at": datetime.now(timezone.utc),
+        "stale": stale,
+        "expired": remaining <= 0,
+        "valid_until": expiry.astimezone(LOCAL_TZ),
+        "remaining": remaining,
     })
     if stale or remaining <= 0:
         res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
                     "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None})
     results[asset] = res
 
+# Persistent daily signal count across Streamlit reruns (session state).
+today = datetime.now(LOCAL_TZ).date().isoformat()
+if st.session_state.get("daily_date") != today:
+    st.session_state["daily_date"] = today
+    st.session_state["daily_keys"] = []
+daily_keys = st.session_state.get("daily_keys", [])
+for asset, res in results.items():
+    if res["signal"] in ("BUY", "SELL"):
+        key = f"{asset}|{res['last_candle_time'].isoformat()}|{res['signal']}"
+        if key not in daily_keys:
+            if len(daily_keys) >= MAX_DAILY_SIGNALS:
+                res.update({"signal":"NO TRADE", "direction":None, "order_type":None,
+                            "entry":None, "sl":None, "tp1":None, "tp2":None, "tp3":None,
+                            "daily_cap":True})
+            else:
+                daily_keys.append(key)
+                st.session_state["daily_keys"] = daily_keys
+    res.setdefault("daily_cap", False)
+daily_count = len(st.session_state.get("daily_keys", []))
+
+# Approval history is intentionally session-scoped; it is not a broker order.
 if "approval_log" not in st.session_state:
     st.session_state["approval_log"] = []
 if "trade_journal" not in st.session_state:
     st.session_state["trade_journal"] = []
 
+# ------------------------------ TOP SUMMARY ------------------------------
+
 st.divider()
 st.subheader("MARKET OVERVIEW")
 scan_now_local = datetime.now(LOCAL_TZ)
 next_scan_local = scan_now_local + timedelta(minutes=SCAN_INTERVAL_MINUTES)
-st.info(f"AUTO REFRESH: every {SCAN_INTERVAL_MINUTES} minutes while this dashboard is open · Last calculation: {scan_now_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Next refresh: about {next_scan_local.strftime('%H:%M')} Kabul time. Browser sleep can delay refresh; no push alert is sent.")
+st.info(f"AUTO SCAN: every {SCAN_INTERVAL_MINUTES} minutes while this dashboard is open · Last calculation: {scan_now_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Next scheduled refresh: about {next_scan_local.strftime('%H:%M')} Kabul time. Phone/browser sleep can delay refresh; this is not a push alert.")
 overview_cols = st.columns(4)
-for idx, (asset, symbol) in enumerate([("GOLD", "XAU/USD"), ("BTC", "BTC/USD")]):
-    if asset in results:
-        overview_cols[idx*2].metric(symbol, f"{results[asset]['last_price']:,.2f}")
-        overview_cols[idx*2+1].metric(f"{asset} SIGNAL", f"{results[asset]['signal_type']} · {results[asset]['signal']}")
-    else:
-        overview_cols[idx*2].metric(symbol, "DATA ERROR")
-        overview_cols[idx*2+1].metric(f"{asset} SIGNAL", "DISABLED")
+if "GOLD" in results:
+    overview_cols[0].metric("XAU/USD", f"{results['GOLD']['last_price']:,.2f}")
+    overview_cols[1].metric("GOLD SIGNAL", results["GOLD"]["order_type"] or "NO TRADE")
+else:
+    overview_cols[0].metric("XAU/USD", "DATA ERROR")
+    overview_cols[1].metric("GOLD SIGNAL", "DISABLED")
+if "BTC" in results:
+    overview_cols[2].metric("BTC/USD", f"{results['BTC']['last_price']:,.2f}")
+    overview_cols[3].metric("BTC SIGNAL", results["BTC"]["order_type"] or "NO TRADE")
+else:
+    overview_cols[2].metric("BTC/USD", "DATA ERROR")
+    overview_cols[3].metric("BTC SIGNAL", "DISABLED")
+
+st.caption(f"Daily setup counter: {daily_count}/{MAX_DAILY_SIGNALS} · Kabul date: {today} · Counter is maintained for this app session.")
+
+# ------------------------------ SCANNER ------------------------------
 
 st.divider()
-st.subheader("⚡ UNIFIED SIGNAL FEED")
-st.caption("یک پنل برای همه فرصت‌ها؛ نوع هر سیگنال SCALP یا NORMAL مشخص می‌شود. SCALP اعتبار ۴۵ دقیقه و NORMAL اعتبار ۴ ساعت دارد.")
-feed_cols = st.columns(2)
-for col, asset, label in zip(feed_cols, ["GOLD", "BTC"], ["GOLD · XAU/USD", "BITCOIN · BTC/USD"]):
-    with col:
-        if asset not in results:
-            st.error(f"{label}: data unavailable")
-        else:
-            r = results[asset]
-            st.markdown(f"**{label}**")
-            st.metric("SIGNAL TYPE", r["signal_type"])
-            st.metric("SIGNAL", r["signal"])
-            if r["signal"] in ("STRONG BUY", "STRONG SELL", "EARLY BUY", "EARLY SELL") and r["entry"] is not None:
-                st.write(f'Entry: **{r["entry"]:,.2f}** · SL: **{r["sl"]:,.2f}**')
-                st.write(f'TP1: **{r["tp1"]:,.2f}** · TP2: **{r["tp2"]:,.2f}** · TP3: **{r["tp3"]:,.2f}**')
-                st.caption(f'Validity: {r["validity_minutes"]} minutes · Until {r["valid_until"].strftime("%H:%M")} Kabul time')
-            else:
-                st.info("NO TRADE — range market or no confirmed directional setup.")
-
-st.subheader("🔎 PRICE ACTION MARKET DIAGNOSTICS")
+st.subheader("🔎 V11 MARKET SCANNER")
 scanner = []
 for asset, title in [("GOLD","XAU/USD"),("BTC","BTC/USD")]:
     if asset not in results:
-        scanner.append({"Market":title,"Price":"—","4H":"—","1H":"—","15M":"—","5M":"—","Type":"—","Signal":"DATA ERROR"})
+        scanner.append({"Market":title,"Price":"—","4H":"—","1H":"—","15M":"—","5M":"—","Score":"—","Result":"DATA ERROR"})
         continue
     r = results[asset]
     scanner.append({
         "Market":title, "Price":round(r["last_price"],2),
         "4H":r["trends"]["4H"], "1H":r["trends"]["1H"],
         "15M":r["trends"]["15M"], "5M":r["trends"]["5M"],
-        "Type":r["signal_type"], "Signal":r["signal"],
+        "Score":f"{r['score']}/100",
+        "Result":r["order_type"] or "NO TRADE",
     })
 st.dataframe(pd.DataFrame(scanner), use_container_width=True, hide_index=True)
+
+# ------------------------------ ASSET WORKSPACES ------------------------------
 
 tabs = st.tabs(["🥇 GOLD · XAU/USD", "₿ BITCOIN · BTC/USD"])
 for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN · BTC/USD"]):
     with tab:
+        st.subheader(title)
         if asset not in results:
-            st.subheader(title)
-            st.error("This asset is temporarily unavailable.")
+            st.error("This asset is temporarily unavailable. The other market can still be analyzed.")
             for e in errors.get(asset, []):
                 st.write(f"- {e}")
             continue
+
         r = results[asset]
-        st.subheader(title + " · " + r["signal_type"])
-        c1,c2,c3 = st.columns(3)
-        c1.metric("PRICE", f'{r["last_price"]:,.2f}')
-        c2.metric("SIGNAL TYPE", r["signal_type"])
-        c3.metric("SIGNAL", r["signal"])
+        c1,c2,c3,c4 = st.columns(4)
+        c1.metric("PRICE", f"{r['last_price']:,.2f}")
+        c2.metric("SIGNAL", r["order_type"] or "NO TRADE")
+        c3.metric("TECHNICAL SCORE", f"{r['score']}/100")
+        c4.metric("RISK / TRADE", f"{risk_pct:.1f}%")
 
         if r["stale"]:
-            st.error("STALE DATA — new trades disabled until fresh 15M data arrives.")
+            st.error("STALE DATA — new trades are disabled until fresh 15M data arrives.")
         elif r["expired"]:
-            st.warning("SETUP WINDOW EXPIRED — wait for a new setup.")
+            st.warning("SETUP WINDOW EXPIRED — wait for a new closed-candle setup.")
         elif r["daily_cap"]:
             st.warning("DAILY SIGNAL LIMIT REACHED.")
-        elif r["signal"] == "STRONG BUY":
-            st.success("STRONG BUY — high rule confluence. Verify live price before placing a manual order.")
-        elif r["signal"] == "STRONG SELL":
-            st.error("STRONG SELL — high rule confluence. Verify live price before placing a manual order.")
-        elif r["signal"] == "EARLY BUY":
-            st.warning("EARLY BUY — earlier setup with higher risk; use extra caution.")
-        elif r["signal"] == "EARLY SELL":
-            st.warning("EARLY SELL — earlier setup with higher risk; use extra caution.")
+        elif r["signal"] == "BUY":
+            st.success("BUY LIMIT candidate — pending setup only; no order is sent to your broker.")
+        elif r["signal"] == "SELL":
+            st.error("SELL LIMIT candidate — pending setup only; no order is sent to your broker.")
         else:
-            st.info("NO TRADE — market is ranging or no valid directional price-action entry is confirmed.")
+            st.warning("NO TRADE — the NORMAL-mode score is not high enough, direction is unclear, or the market is compressed/ranging.")
 
-        active_signal = r["signal"] in ("STRONG BUY","STRONG SELL","EARLY BUY","EARLY SELL")
-        if active_signal and r["entry"] is not None:
+        if r["signal"] in ("BUY","SELL") and r["entry"] is not None:
             vals = [("LIMIT ENTRY",r["entry"]),("STOP LOSS",r["sl"]),("TAKE PROFIT 1",r["tp1"]),("TAKE PROFIT 2",r["tp2"]),("TAKE PROFIT 3",r["tp3"])]
             cols = st.columns(5)
             for col,(label,value) in zip(cols,vals):
                 col.metric(label,f"{value:,.2f}")
-            st.info(f'Price risk distance: {r["risk_distance"]:.4f}. Lot size and account risk are not calculated; use your broker risk controls.')
+            risk_cash = account_size * risk_pct / 100
+            st.info(f"Illustrative risk budget: ${risk_cash:,.2f}. Price risk distance: {r['risk_distance']:.4f}. Position size depends on your broker's contract specifications, tick value and lot rules; do not infer lots from this screen.")
             issued_local = r["generated_at"].astimezone(LOCAL_TZ)
-            st.caption(f'Calculated: {issued_local.strftime("%Y-%m-%d %H:%M:%S")} Kabul time · Valid until: {r["valid_until"].strftime("%Y-%m-%d %H:%M")} Kabul time · {r["remaining"]//60} minutes remaining · TP2 target: 2R.')
-            if r["signal"].startswith("EARLY"):
-                st.warning("EARLY setup: consider smaller risk than your normal plan. This app does not calculate lot size.")
+            st.caption(f"Signal calculated: {issued_local.strftime('%Y-%m-%d %H:%M:%S')} Kabul time · Valid until: {r['valid_until'].strftime('%Y-%m-%d %H:%M')} Kabul time · {r['remaining']//60} minutes remaining · Planned reward/risk to TP2: 2R.")
         else:
-            st.caption("No active Entry, Stop Loss or Take Profit because the setup did not pass all required filters.")
-
-        st.markdown("### 🧠 ADVANCED PRICE ACTION ANALYSIS")
-        smart = r["smart_analysis"]
-        st.caption("تحلیل ساختار بازار، نقدینگی، FVG و الگوهای کندلی؛ امتیاز یا فیصدی نمایش داده نمی‌شود.")
-        st.caption(
-            f'Liquidity sweep BUY: {"YES" if smart["buy_sweep"] else "NO"} · '
-            f'Liquidity sweep SELL: {"YES" if smart["sell_sweep"] else "NO"} · '
-            f'Bullish FVG: {"YES" if smart["bullish_fvg"] else "NO"} · '
-            f'Bearish FVG: {"YES" if smart["bearish_fvg"] else "NO"} · '
-            f'ICT Kill Zone: {"ACTIVE" if smart["killzone"] else "INACTIVE"}'
-        )
-        st.caption(f'Market midpoint: {smart["midpoint"]:,.4f} · Confirmed swing high: {smart["last_swing_high"] if smart["last_swing_high"] is not None else "N/A"} · Confirmed swing low: {smart["last_swing_low"] if smart["last_swing_low"] is not None else "N/A"}')
+            st.caption("No active entry, stop-loss or take-profit levels because the setup did not pass every filter.")
 
         st.markdown("**MANUAL SIGNAL APPROVAL**")
-        if active_signal and r["entry"] is not None and not r["stale"] and not r["expired"]:
-            signal_key = f'{asset}|{r["last_candle_time"].isoformat()}|{r["signal"]}|{r["entry"]:.8f}'
+        if r["signal"] in ("BUY", "SELL") and r["entry"] is not None and not r["stale"] and not r["expired"]:
+            signal_key = f"{asset}|{r['last_candle_time'].isoformat()}|{r['signal']}|{r['entry']:.8f}"
             existing = next((x for x in reversed(st.session_state["approval_log"]) if x["signal_key"] == signal_key), None)
             if existing:
-                st.info(f'Your decision for this setup: {existing["decision"]} · {existing["time"]}')
+                st.info(f"Your decision for this setup: {existing['decision']} · {existing['time']}")
             a1, a2 = st.columns(2)
-            if a1.button("✅ APPROVE FOR MANUAL TRADE", key=f'approve_{asset}_{r["last_candle_time"].value}', use_container_width=True):
+            if a1.button("✅ APPROVE FOR MANUAL TRADE", key=f"approve_{asset}_{r['last_candle_time'].value}", use_container_width=True):
                 st.session_state["approval_log"].append({
                     "signal_key": signal_key, "time": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                    "asset": asset, "decision": "APPROVED", "side": r["direction"],
-                    "signal_type": r["signal"], "entry": float(r["entry"]), "sl": float(r["sl"]),
-                    "tp1": float(r["tp1"]), "tp2": float(r["tp2"]), "tp3": float(r["tp3"]),
-                    "score": int(r["score"])
+                    "asset": asset, "decision": "APPROVED", "side": r["signal"],
+                    "entry": float(r["entry"]), "sl": float(r["sl"]), "tp1": float(r["tp1"]),
+                    "tp2": float(r["tp2"]), "tp3": float(r["tp3"]), "score": int(r["score"])
                 })
-                st.success("Recorded in dashboard only. Open MT5 and place the trade yourself after checking live price.")
-            if a2.button("✖ REJECT SIGNAL", key=f'reject_{asset}_{r["last_candle_time"].value}', use_container_width=True):
+                st.success("Approved in this dashboard only. Open MT5 and place the order yourself after checking the live price and contract details.")
+            if a2.button("✖ REJECT SIGNAL", key=f"reject_{asset}_{r['last_candle_time'].value}", use_container_width=True):
                 st.session_state["approval_log"].append({
                     "signal_key": signal_key, "time": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                    "asset": asset, "decision": "REJECTED", "side": r["direction"],
-                    "signal_type": r["signal"], "entry": float(r["entry"]), "sl": float(r["sl"]),
-                    "tp1": float(r["tp1"]), "tp2": float(r["tp2"]), "tp3": float(r["tp3"]),
-                    "score": int(r["score"])
+                    "asset": asset, "decision": "REJECTED", "side": r["signal"],
+                    "entry": float(r["entry"]), "sl": float(r["sl"]), "tp1": float(r["tp1"]),
+                    "tp2": float(r["tp2"]), "tp3": float(r["tp3"]), "score": int(r["score"])
                 })
                 st.warning("Signal rejection recorded in this app session.")
         else:
-            st.caption("Approval disabled: no valid, unexpired signal.")
+            st.caption("Approval is disabled because there is no valid, unexpired signal.")
 
         st.markdown("**TIMEFRAME ALIGNMENT**")
         tf_rows=[]
@@ -742,17 +600,35 @@ for tab, asset, title in zip(tabs, ["GOLD","BTC"], ["GOLD · XAU/USD","BITCOIN �
                 "EMA 20":round(float(x["ema20"]),4),
                 "EMA 50":round(float(x["ema50"]),4),
                 "EMA 200":round(float(x["ema200"]),4),
-                "RSI":round(float(x["rsi"]),1), "ADX":round(float(x["adx"]),1),
+                "RSI":round(float(x["rsi"]),1),
+                "ADX":round(float(x["adx"]),1),
             })
         st.dataframe(pd.DataFrame(tf_rows),use_container_width=True,hide_index=True)
+
         with st.expander("Signal quality checklist"):
             check_rows=[{"Condition":k,"Status":"PASS" if v else "NOT CONFIRMED"} for k,v in r["checks"].items()]
             st.dataframe(pd.DataFrame(check_rows),use_container_width=True,hide_index=True)
-            st.caption(f'RSI: {r["rsi"]:.1f} · ADX: {r["adx"]:.1f} · Score is hidden from the dashboard.')
+            st.caption(f"BUY score: {r['buy_score']}/100 · SELL score: {r['sell_score']}/100 · RSI: {r['rsi']:.1f} · ADX: {r['adx']:.1f}")
+            st.caption(f"BUY components: {r['score_parts_buy']} · SELL components: {r['score_parts_sell']}")
+            st.caption(f"CRT/ICT/SMC/Price Action engine · Market state: {'CHOPPY/RANGE' if r['is_choppy'] else 'TRADEABLE'} · VWAP proxy: {r['vwap']:.4f}")
+            st.caption("A PASS checklist or high score is not a statistical probability of success.")
+
+# ------------------------------ RISK CALCULATOR ------------------------------
+
+st.divider()
+st.subheader("🛡️ POSITION RISK PLANNER")
+st.caption("Use this to estimate a cash risk budget. Contract size, pip/tick value and lot sizing differ by broker and instrument.")
+rc1,rc2,rc3=st.columns(3)
+rc1.metric("ACCOUNT BALANCE",f"${account_size:,.2f}")
+rc2.metric("RISK SETTING",f"{risk_pct:.2f}%")
+rc3.metric("MAX PLANNED LOSS",f"${account_size*risk_pct/100:,.2f}")
+st.caption("Do not use the cash risk figure as a lot-size instruction. Confirm contract specifications with your broker.")
+
+# ------------------------------ MANUAL TRADE JOURNAL ------------------------------
 
 st.divider()
 st.subheader("📝 MANUAL TRADE JOURNAL")
-st.caption("Records are kept only in this Streamlit session. Download CSV backups.")
+st.caption("Record trades that you actually placed in MT5. This is a local app-session log, not a permanent cloud database.")
 with st.form("manual_trade_journal_form", clear_on_submit=True):
     j1, j2, j3 = st.columns(3)
     journal_asset = j1.selectbox("Market", ["GOLD", "BTC"])
@@ -791,11 +667,15 @@ if st.session_state["approval_log"]:
         st.download_button("⬇️ DOWNLOAD APPROVAL HISTORY CSV", approval_df.drop(columns=["signal_key"], errors="ignore").to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"AFG_approval_history_{today}.csv", mime="text/csv", use_container_width=True)
 
+# ------------------------------ SESSIONS ------------------------------
+
 st.divider()
 st.subheader("🌍 TRADING SESSIONS")
 session_cols=st.columns(3)
 for col,(name,active,clock) in zip(session_cols,session_status()):
     col.metric(name,"OPEN" if active else "CLOSED",f"Local exchange time {clock}")
+
+# ------------------------------ DATA WARNINGS / AUDIT ------------------------------
 
 if errors:
     with st.expander("Market data warnings"):
@@ -806,22 +686,17 @@ if errors:
 
 with st.expander("V11 methodology, limits and safety"):
     st.write("""
-    - Uses completed candles only; forming candles are excluded.
-    - Signal direction is determined by OHLC price action only: market structure, BOS, liquidity sweeps, engulfing/rejection candles, FVG and breakout-retest. Technical indicators are display-only.
-    - SMC includes confirmed swing liquidity sweeps, structure breaks, a three-candle FVG approximation, and premium/discount location.
-    - ICT includes displacement, approximate OTE, simplified order-block retests, liquidity raids, and time-based kill zones.
-    - Price Action includes engulfing, rejection-wick, and breakout/retest patterns.
-    - These are mechanical approximations; discretionary SMC/ICT concepts such as inducement and CHoCH are not fully modeled.
-    - STRONG signals require 4H, 1H and 15M trend alignment plus legacy confirmations and smart confluence.
-    - EARLY signals require 1H and 15M alignment, legacy confirmations and smart confluence; they are blocked when 4H is explicitly opposite.
-    - Signal expiry is 45 minutes after calculation; stale 15M data also disables new trades.
-    - Dashboard refreshes every 45 minutes while the browser remains active; mobile sleep can delay it. No push notifications.
-    - BUY LIMIT / SELL LIMIT levels are analytical estimates, not broker orders.
-    - No economic calendar/news feed or automatic 10-minute pre-news alert is connected in this file.
-    - Internal qualification scores are not displayed and are not win probabilities or guarantees.
-    - Approval and journal records are session-scoped and may reset after restart/new session; download CSV backups.
-    - Daily signal counter is session-scoped and may reset after app restart/new session.
-    - No automatic trade execution. Validate on demo with spread, fees, slippage and missed limit fills.
-    - Lot size is not calculated because broker contract specifications are not verified.
+    - Uses completed candles only; the current forming candle is excluded.
+    - Dashboard recalculates every 40 minutes while the browser session remains active; mobile background sleep or connection loss can delay refresh. No push notifications are sent.
+    - A setup expires 45 minutes after the latest completed 15-minute candle close; expired or stale setups are disabled.
+    - NORMAL weighted engine: Price Action 50%, SMC 25%, ICT 10%, CRT 10%, Technical 5%; no requirement for every timeframe or every method to agree.
+    - Blocks compressed/choppy ranges using a combined ADX, EMA-separation and recent-range check; ordinary low ADX alone does not block a setup.
+    - Supports MARKET candidates near EMA20 and LIMIT candidates when a pullback entry is more suitable.
+    - BUY/SELL MARKET and LIMIT levels are analytical estimates, not broker orders.
+    - Technical score measures rule alignment only. It is not a win rate, confidence probability or guarantee.
+    - Manual approvals and trade journal records are held in Streamlit session state and can reset after app restart or a new session; download CSV backups regularly.
+    - The daily signal counter is held in Streamlit session state. A full app restart or a new session may reset it; it is not a durable account-wide trading lock.
+    - This version does not claim a verified 99% accuracy. Validate it with out-of-sample historical testing and a demo account, including fees, spread, slippage and missed limit fills.
+    - Position size is intentionally not calculated because broker contract specifications are not known.
     """)
-st.caption("AFG AI GOLD PRO ELITE V11 · ADVANCED PRICE ACTION ONLY · Decision-support only · No broker order execution")
+st.caption("AFG AI GOLD PRO ELITE V11 · Decision-support software only · No trade execution")
